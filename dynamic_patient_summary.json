@@ -1,0 +1,14 @@
+{
+  "summary": "21-year-old female patient presenting with a two-day history of cold, fever, cough, and moderate body aches. No known allergies or pre-existing conditions reported.",
+  "patient_data": {
+    "name": "Navya Naladala",
+    "age": 21,
+    "gender": "Female",
+    "chief_complaint": "Cold, fever, cough, body aches",
+    "symptom_duration": "2 days",
+    "body_aches_severity": "moderate",
+    "allergies": "None",
+    "preexisting_conditions": "None"
+  },
+  "status": "complete"
+}

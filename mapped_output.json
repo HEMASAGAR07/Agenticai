@@ -1,0 +1,21 @@
+[
+  {
+    "table": "patients",
+    "columns": {
+      "full_name": "Nikhil lekkala",
+      "age": 21,
+      "gender": "male",
+      "address": "3-25,2nd cross,marathahalli,banglore ,560037"
+    }
+  },
+  {
+    "table": "symptoms",
+    "records": [
+      {
+        "symptom_description": "runny nose",
+        "severity": null,
+        "duration": "5 days"
+      }
+    ]
+  }
+]

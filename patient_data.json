@@ -1,0 +1,16 @@
+{
+  "name": "Amar Nagula",
+  "age": 20,
+  "gender": "Male",
+  "symptoms": "Fever (5 days, 102\u00b0F), dry cough, runny nose",
+  "past_surgeries": "None",
+  "current_medications": "None",
+  "allergies": "None",
+  "family_history": "None reported",
+  "lifestyle": "No smoking, no alcohol use",
+  "email": "amar@gmail.com",
+  "phone": "9666490588",
+  "address": "3-24,marathahalli,banglore,560037",
+  "past_illness": "no",
+  "past_history": "yes"
+}

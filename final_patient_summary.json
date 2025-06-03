@@ -1,0 +1,19 @@
+{
+  "summary": "21-year-old male patient reporting a runny nose as his only current symptom.  No past medical history, current medications, or known allergies reported.",
+  "patient_data": {
+    "name": "Nikhil lekkala",
+    "age": 21,
+    "gender": "male",
+    "symptoms": "runny nose (5 days)",
+    "past_surgeries": "None",
+    "current_medications": "None",
+    "allergies": "None",
+    "notes": "3-25,2nd cross,marathahalli,banglore ,560037"
+  },
+  "followup_notes": "Added duration of runny nose symptom.",
+  "recommended_specialist": [
+    "General Practitioner"
+  ],
+  "specialist_rationale": "A runny nose for 5 days suggests a common cold or similar upper respiratory infection.  A General Practitioner can assess the symptoms and determine if further testing or treatment is needed.  Specialists are not typically required for this.",
+  "status": "complete"
+}
