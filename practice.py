@@ -420,31 +420,45 @@ def main():
         st.header("Step 6: Review and Insert Data into Database")
         mapped_file = "mapped_output.json"
         if os.path.exists(mapped_file):
-            with open(mapped_file, "r") as f:
-                mapped_result = json.load(f)
-            st.subheader("Mapped JSON to be Inserted")
-            st.json(mapped_result)
+            try:
+                with open(mapped_file, "r") as f:
+                    mapped_result = json.load(f)
+                st.subheader("Mapped JSON to be Inserted")
+                st.json(mapped_result)
 
-            if st.button("Insert into Database"):
-                try:
+                # Debug: Show database configuration (with password hidden)
+                debug_config = dict(db_config)
+                if "password" in debug_config:
+                    debug_config["password"] = "****"
+                st.write("Database Configuration:")
+                st.json(debug_config)
+
+                if st.button("Insert into Database"):
+                    try:
+                        # Test database connection first
+                        st.info("Testing database connection...")
+                        conn = pymysql.connect(**db_config)
+                        st.success("Database connection successful!")
+                        conn.close()
+
+                        # Proceed with insertion
+                        st.info("Starting data insertion...")
                         insert_data_from_mapped_json(mapped_file)
                         st.success("✅ Data successfully inserted into the database.")
                         st.session_state.step = "booking"
                         st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Database insertion failed: {e}")
-                
-                # Call the insert script as a subprocess
-              
-                st.text("Insert Script Output:\n" + result.stdout)
-                if result.stderr:
-                    st.error("Insert Script Errors:\n" + result.stderr)
-                if "All data inserted into the database." in result.stdout:
-                    st.success("✅ Data successfully inserted into the database.")
-                    st.session_state.step = "booking"  # <-- Move to booking step
-                    st.rerun()
-                else:
-                    st.error("❌ Database insertion failed. See output above for details.")
+                    except pymysql.Error as e:
+                        st.error(f"❌ Database connection/insertion failed: {str(e)}")
+                        st.error("Error Code: " + str(getattr(e, 'args', ['Unknown'])[0]))
+                        st.error("Error Message: " + str(getattr(e, 'args', ['Unknown'])[1]))
+                    except Exception as e:
+                        st.error(f"❌ Other error during insertion: {str(e)}")
+                        import traceback
+                        st.error("Full error trace: " + traceback.format_exc())
+            except json.JSONDecodeError as e:
+                st.error(f"❌ Error reading mapped file: {str(e)}")
+            except Exception as e:
+                st.error(f"❌ Unexpected error: {str(e)}")
         else:
             st.error("Mapped output file not found. Please complete mapping step first.")
 
