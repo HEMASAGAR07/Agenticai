@@ -459,8 +459,8 @@ def main():
                     st.warning("⚠️ No available slots found for any recommended specialist in the next 7 days.")
                 else:
                     st.info("See output above for booking details.")
-            except Exception as e:
-                st.error(f"❌ Booking failed: {e}")
+        except Exception as e:
+            st.error(f"❌ Booking failed: {e}")
         # Call the booking script as a subprocess
       
         st.text("Booking Script Output:\n" + result.stdout)
