@@ -559,14 +559,17 @@ def main():
                         st.info("Verifying database read access...")
                         cursor.execute("SHOW TABLES")
                         tables = cursor.fetchall()
-                        st.write("Available tables:", [table[0] for table in tables])
+                        # Extract table names from DictCursor result
+                        table_names = [list(table.values())[0] for table in tables]
+                        st.write("Available tables:", table_names)
                         
                         # Get initial record counts
                         st.info("Getting initial record counts...")
                         table_counts_before = {}
-                        for table in tables:
-                            cursor.execute(f"SELECT COUNT(*) FROM {table[0]}")
-                            table_counts_before[table[0]] = cursor.fetchone()['COUNT(*)']
+                        for table_name in table_names:
+                            cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
+                            result = cursor.fetchone()
+                            table_counts_before[table_name] = result['count']
                         st.write("Initial record counts:", table_counts_before)
                         
                         # Proceed with insertion
