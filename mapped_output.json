@@ -10,10 +10,10 @@
 "address":"3-25, 2nd Cross, Marathahalli, Bangalore, 560037"
 }
 }
-1:{
+{
 "table":"symptoms"
 "records":[
-0:{
+{
 "symptom_description":"Mild clear runny nose"
 "severity":"Mild"
 "duration":"1 day"
