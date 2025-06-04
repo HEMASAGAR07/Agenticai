@@ -20,10 +20,11 @@ def connect_to_db():
 
 # Insert single-record table
 def insert_single_record(cursor, table, columns):
-    col_names = ", ".join(columns.keys())
+    # Escape column names with backticks
+    col_names = ", ".join([f"`{key}`" for key in columns.keys()])
     placeholders = ", ".join(["%s"] * len(columns))
     values = list(columns.values())
-    query = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
+    query = f"INSERT INTO `{table}` ({col_names}) VALUES ({placeholders})"
     print(f"🔍 Executing query: {query}")
     print(f"🔍 With values: {values}")
     cursor.execute(query, values)
@@ -32,9 +33,10 @@ def insert_single_record(cursor, table, columns):
 def insert_multiple_records(cursor, table, records):
     if not records:
         return
-    col_names = ", ".join(records[0].keys())
+    # Escape column names with backticks
+    col_names = ", ".join([f"`{key}`" for key in records[0].keys()])
     placeholders = ", ".join(["%s"] * len(records[0]))
-    query = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
+    query = f"INSERT INTO `{table}` ({col_names}) VALUES ({placeholders})"
     values = [tuple(rec.values()) for rec in records]
     print(f"🔍 Executing query: {query}")
     print(f"🔍 With values: {values}")
