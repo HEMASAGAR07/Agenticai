@@ -1,3 +1,5 @@
+# booking.py
+
 import pymysql
 from datetime import datetime, timedelta
 import json
@@ -44,7 +46,9 @@ def parse_available_days(days_str):
 def get_patient_id_by_email(cursor, email):
     cursor.execute("SELECT patient_id FROM patients WHERE email = %s", (email,))
     result = cursor.fetchone()
-    return result['patient_id'] if result else None
+    if result:
+        return result['patient_id']
+    return None
 
 def book_appointment_from_json(json_file_path="final_patient_summary.json"):
     with open(json_file_path) as f:
@@ -57,7 +61,7 @@ def book_appointment_from_json(json_file_path="final_patient_summary.json"):
         raise ValueError("Patient email not found in JSON.")
 
     conn = pymysql.connect(**db_config)
-    cursor = conn.cursor()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
 
     try:
         patient_id = get_patient_id_by_email(cursor, patient_email)
