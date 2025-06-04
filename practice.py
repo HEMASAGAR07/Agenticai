@@ -587,12 +587,17 @@ def main():
                                 else:
                                     st.write(f"- Added {record['count']} records to {record['table']}")
                             
-                            # Add a button to proceed to booking
-                            if st.button("Proceed to Booking"):
+                            # Store success in session state
+                            st.session_state.db_insert_success = True
+                            
+                            # Show proceed button only if insertion was successful
+                            proceed_button = st.button("Proceed to Booking", key="proceed_to_booking")
+                            if proceed_button:
                                 st.session_state.step = "booking"
                                 st.rerun()
                         else:
                             st.error("❌ Data insertion failed")
+                            st.session_state.db_insert_success = False
                             
                     except Exception as e:
                         st.error(f"❌ Error during database operation: {str(e)}")
@@ -610,6 +615,14 @@ def main():
 
     elif st.session_state.step == "booking":
         st.header("Step 7: Book Appointment with Recommended Specialist")
+        
+        # Verify that we came from a successful database insertion
+        if not st.session_state.get("db_insert_success", False):
+            st.warning("⚠️ Please complete the database insertion step first")
+            if st.button("Go Back to Database Insertion"):
+                st.session_state.step = "db_insert"
+                st.rerun()
+            return
         
         # First verify we have the patient data with email
         try:
@@ -635,18 +648,22 @@ def main():
                 return
             
             # Add a button to initiate booking
-            if st.button("Book Appointment"):
+            book_button = st.button("Book Appointment", key="book_appointment")
+            if book_button:
                 try:
                     result = book_appointment_from_json()  # returns message string or object
                     if isinstance(result, str):
                         if "Appointment booked" in result:
                             st.success("✅ " + result)
+                            st.session_state.booking_success = True
                             # Show finish button only after successful booking
-                            if st.button("Finish"):
+                            finish_button = st.button("Finish", key="finish_booking")
+                            if finish_button:
                                 st.session_state.step = "done"
                                 st.rerun()
                         elif "No available slots found" in result:
                             st.warning("⚠️ " + result)
+                            st.session_state.booking_success = False
                         else:
                             st.info(result)
                     else:
