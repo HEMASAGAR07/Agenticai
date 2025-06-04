@@ -548,7 +548,15 @@ def main():
                 st.write("Database Configuration:")
                 st.json(debug_config)
 
-                if st.button("Insert into Database"):
+                # Check if data has been inserted successfully
+                if "db_insert_success" in st.session_state and st.session_state.db_insert_success:
+                    st.success("✅ Data has been successfully inserted into the database!")
+                    if st.button("Proceed to Booking", key="proceed_to_booking"):
+                        st.session_state.step = "booking"
+                        st.rerun()
+                    return
+
+                if st.button("Insert into Database", key="insert_db"):
                     try:
                         # Test database connection first
                         st.info("Testing database connection...")
@@ -587,14 +595,9 @@ def main():
                                 else:
                                     st.write(f"- Added {record['count']} records to {record['table']}")
                             
-                            # Store success in session state
+                            # Set success flag and show proceed button
                             st.session_state.db_insert_success = True
-                            
-                            # Show proceed button only if insertion was successful
-                            proceed_button = st.button("Proceed to Booking", key="proceed_to_booking")
-                            if proceed_button:
-                                st.session_state.step = "booking"
-                                st.rerun()
+                            st.rerun()  # Rerun to show the proceed button
                         else:
                             st.error("❌ Data insertion failed")
                             st.session_state.db_insert_success = False
