@@ -465,7 +465,8 @@ def main():
     elif st.session_state.step == "booking":
         st.header("Step 7: Book Appointment with Recommended Specialist")
         try:
-                result = book_appointment_from_json()  # returns message string or object
+            result = book_appointment_from_json()  # returns message string or object
+            if isinstance(result, str):
                 st.text("Booking Script Output:\n" + result)
                 if "Appointment booked" in result:
                     st.success("✅ Appointment successfully booked!")
@@ -473,21 +474,11 @@ def main():
                     st.warning("⚠️ No available slots found for any recommended specialist in the next 7 days.")
                 else:
                     st.info("See output above for booking details.")
+            else:
+                st.error("Unexpected result format from booking function")
         except Exception as e:
             st.error(f"❌ Booking failed: {e}")
-        # Call the booking script as a subprocess
-      
-        st.text("Booking Script Output:\n" + result.stdout)
-        if result.stderr:
-            st.error("Booking Script Errors:\n" + result.stderr)
-        if "Appointment booked" in result.stdout:
-            st.success("✅ Appointment successfully booked!")
-            # Optionally, show the details more clearly
-            st.markdown(f"*Details:*\n\n{result.stdout}\n")
-        elif "No available slots found" in result.stdout:
-            st.warning("❌ No available slots found for any recommended specialist in the next 7 days.")
-        else:
-            st.info("See output above for booking details.")
+        
         # Show a "Finish" button to move to done step
         if st.button("Finish"):
             st.session_state.step = "done"
