@@ -42,8 +42,30 @@ def insert_multiple_records(cursor, table, records):
 
 # Load mapped JSON
 def load_mapped_output(file_path):
-    with open(file_path, "r") as f:
-        return json.load(f)
+    """Load and validate the mapped JSON data"""
+    try:
+        with open(file_path, "r") as f:
+            content = f.read().strip()
+            # Debug print
+            print(f"📝 Raw file content: {content[:200]}...")  # Show first 200 chars
+            
+            # Try to parse the JSON content
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError as e:
+                print(f"❌ JSON parsing error at position {e.pos}: {e.msg}")
+                print(f"Near text: {content[max(0, e.pos-20):min(len(content), e.pos+20)]}")
+                raise ValueError(f"Invalid JSON format: {str(e)}")
+
+            # Validate the structure
+            if isinstance(data, (dict, list)):
+                return data
+            else:
+                raise ValueError(f"Expected JSON object or array, got {type(data)}")
+    except FileNotFoundError:
+        raise FileNotFoundError(f"File not found: {file_path}")
+    except Exception as e:
+        raise ValueError(f"Error loading mapped output: {str(e)}")
 
 def get_primary_key_column(table):
     """Return the primary key column name for each table"""
@@ -60,12 +82,11 @@ def get_primary_key_column(table):
 
 # Main logic
 def insert_data_from_mapped_json(file_path):
-    try:
-        with open(file_path, "r") as f:
-            data = json.load(f)
-    except Exception as e:
-        print(f"❌ Error reading JSON file: {e}")
-        raise
+    print(f"🔄 Loading data from file: {file_path}")
+    data = load_mapped_output(file_path)
+    
+    print(f"📝 Loaded data structure type: {type(data)}")
+    print(f"📝 Data content: {json.dumps(data, indent=2)}")
 
     conn = None
     cursor = None
@@ -73,8 +94,6 @@ def insert_data_from_mapped_json(file_path):
 
     try:
         print("🔄 Starting database insert...")
-        print(f"📝 Loaded data structure: {json.dumps(data, indent=2)}")
-        
         conn = connect_to_db()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
@@ -84,10 +103,15 @@ def insert_data_from_mapped_json(file_path):
         # Handle both list and dict formats
         if isinstance(data, dict):
             data = [data]
-        elif not isinstance(data, list):
+        
+        if not isinstance(data, list):
             raise ValueError(f"Expected list or dict, got {type(data)}")
             
-        for item in data:
+        print(f"📝 Processing {len(data)} items...")
+        
+        for idx, item in enumerate(data):
+            print(f"📝 Processing item {idx + 1}/{len(data)}")
+            
             if not isinstance(item, dict):
                 print(f"⚠️ Skipping invalid item type {type(item)}: {item}")
                 continue
