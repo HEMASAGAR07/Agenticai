@@ -1,21 +1,23 @@
 [
-  {
-    "table": "patients",
-    "columns": {
-      "full_name": "Nikhil lekkala",
-      "age": 21,
-      "gender": "male",
-      "address": "3-25,2nd cross,marathahalli,banglore ,560037"
-    }
-  },
-  {
-    "table": "symptoms",
-    "records": [
-      {
-        "symptom_description": "runny nose",
-        "severity": null,
-        "duration": "5 days"
-      }
-    ]
-  }
+{
+"table":"patients"
+"columns":{
+"full_name":"Sunitha Lekkala"
+"email":"sunitha@gmail.com"
+"DOB":"2003-12-13"
+"gender":"Female"
+"phone":"8767567689"
+"address":"3-25, 2nd Cross, Marathahalli, Bangalore, 560037"
+}
+}
+1:{
+"table":"symptoms"
+"records":[
+0:{
+"symptom_description":"Mild clear runny nose"
+"severity":"Mild"
+"duration":"1 day"
+}
+]
+}
 ]
