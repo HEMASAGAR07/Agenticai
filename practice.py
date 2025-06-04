@@ -233,6 +233,7 @@ Mandatory fields:
 
 ⚠️ IMPORTANT: The email field MUST be present and valid (e.g., user@domain.com format).
 If email is missing or invalid, you MUST ask for it first before any other fields.
+DO NOT proceed with other fields until a valid email is provided.
 
 If any mandatory fields are missing or empty, ask the patient directly to provide them one by one.
 
@@ -252,6 +253,8 @@ Begin your check and ask for missing info as needed, starting with email if it's
         reply = st.session_state.confirm_response.send_message(prompt)
         st.session_state.confirm_history = [("bot", reply.text.strip())]
         st.session_state.updated_final_data = dict(final_json)  # copy original data
+        if "patient_data" not in st.session_state.updated_final_data:
+            st.session_state.updated_final_data["patient_data"] = {}
     else:
         reply = st.session_state.confirm_response
 
@@ -266,8 +269,14 @@ Begin your check and ask for missing info as needed, starting with email if it's
         u_input = user_input.strip()
         d = st.session_state.updated_final_data.get("patient_data", {})
 
+        # Email handling with validation
         if "email" in last_bot_msg:
-            d["email"] = u_input
+            if "@" in u_input and "." in u_input:  # Basic email validation
+                d["email"] = u_input
+                st.success(f"Email saved: {u_input}")
+            else:
+                st.error("Please provide a valid email address (e.g., user@domain.com)")
+                return st.session_state.updated_final_data, False, "Invalid email format"
         elif "name" in last_bot_msg:
             d["name"] = u_input
         elif "age" in last_bot_msg:
@@ -281,6 +290,10 @@ Begin your check and ask for missing info as needed, starting with email if it's
             d["phone"] = u_input
         elif "address" in last_bot_msg:
             d["address"] = u_input
+            # Move from notes to address if it was stored in notes
+            if "notes" in d and d["notes"] and not d.get("address"):
+                d["address"] = d["notes"]
+                d["notes"] = ""
         elif "symptom" in last_bot_msg:
             d["symptom_list"] = u_input
             d["symptoms"] = "yes"
@@ -315,10 +328,17 @@ Begin your check and ask for missing info as needed, starting with email if it's
         # Check for confirmation
         result = extract_json(reply.text)
         if result.get("status") == "confirmed":
-            # Ensure email exists before proceeding
-            if "email" not in d or not d["email"]:
+            # Double check mandatory fields
+            if "email" not in d or not d["email"] or "@" not in d["email"]:
                 st.error("Email is required. Please provide a valid email address.")
                 return st.session_state.updated_final_data, False, "Email is required"
+            
+            # Move address from notes if it exists there
+            if not d.get("address") and d.get("notes"):
+                d["address"] = d["notes"]
+                d["notes"] = ""
+                st.session_state.updated_final_data["patient_data"] = d
+            
             return st.session_state.updated_final_data, True, result.get("message", "")
         else:
             st.rerun()
