@@ -51,6 +51,14 @@ You are an intelligent medical intake assistant.
 Your job is to collect all necessary health details step-by-step, one question at a time. You must also evaluate each answer and ensure it's valid.
 
 🔍 Your behavior should follow these rules:
+- Start by collecting basic contact information in this exact order:
+  1. Full Name
+  2. Email Address (must be valid format like user@domain.com)
+  3. Date of Birth
+  4. Gender
+  5. Phone Number
+  6. Address
+
 - Do NOT ask all questions upfront.
 - Do not accept fake, placeholder, or gibberish data. For example:
   - Invalid phone numbers like "1234567891" or too short.
@@ -68,7 +76,7 @@ Your job is to collect all necessary health details step-by-step, one question a
   - Politely ask them to rephrase or clarify only when needed.
 
 ⚠️ IMPORTANT: Be sure to cover all these critical areas during the intake:
-- Patient's name
+- Basic contact info (name, email, DOB, gender, phone, address)
 - Current symptoms and complaints
 - Past medical history including any surgeries or hospitalizations
 - Current medications the patient is taking
@@ -79,10 +87,12 @@ Your job is to collect all necessary health details step-by-step, one question a
 {
   "summary": "Short summary of findings",
   "patient_data": {
-    "name": "Alice",
-    "age": 34,
-    "email": "G2JlB@example.com",
+    "name": "Alice Smith",
+    "email": "alice@example.com",
+    "dob": "1990-01-01",
     "gender": "Female",
+    "phone": "555-0123",
+    "address": "123 Main St",
     "symptoms": "...",
     "past_surgeries": "...",
     "current_medications": "...",
@@ -92,11 +102,13 @@ Your job is to collect all necessary health details step-by-step, one question a
   "status": "complete"
 }
 
-Now begin by asking the first question to the patient.
+⚠️ IMPORTANT: Do not mark the intake as complete until you have collected ALL required basic contact information, especially email.
+
+Now begin by asking for the patient's full name.
 """
         st.session_state.intake_response = model.start_chat(history=[])
         reply = st.session_state.intake_response.send_message(
-            intro + "\n\nStart by asking the first question to the patient.")
+            intro + "\n\nStart by asking for the patient's full name.")
         st.session_state.intake_history.append(("bot", reply.text.strip()))
     else:
         reply = st.session_state.intake_response
@@ -114,10 +126,23 @@ Now begin by asking the first question to the patient.
         # Check if final JSON with status complete
         final_output = extract_json(reply.text)
         if final_output.get("status") == "complete":
-            st.session_state.patient_data = final_output.get("patient_data", {})
-            summary = final_output.get("summary", "")
-            st.success(" Initial intake complete.")
-            return st.session_state.patient_data, summary, True
+            patient_data = final_output.get("patient_data", {})
+            
+            # Validate required fields before allowing completion
+            required_fields = ["name", "email", "dob", "gender", "phone", "address"]
+            missing_fields = [field for field in required_fields if not patient_data.get(field)]
+            
+            if missing_fields:
+                # If any required field is missing, continue the intake
+                st.error(f"Missing required fields: {', '.join(missing_fields)}")
+                st.session_state.intake_response.send_message(
+                    f"Please collect the following missing information: {', '.join(missing_fields)}")
+                st.rerun()
+            else:
+                st.session_state.patient_data = patient_data
+                summary = final_output.get("summary", "")
+                st.success(" Initial intake complete.")
+                return patient_data, summary, True
         else:
             # Continue intake
             st.rerun()
@@ -346,6 +371,34 @@ Begin your check and ask for missing info as needed, starting with email if it's
     return final_json, False, ""
 
 
+def migrate_existing_data(data):
+    """Migrate existing data to new format, ensuring all required fields exist."""
+    if not isinstance(data, dict):
+        return data
+
+    if "patient_data" in data:
+        patient_data = data["patient_data"]
+        
+        # Move address from notes if it exists and address is empty
+        if "notes" in patient_data and not patient_data.get("address"):
+            patient_data["address"] = patient_data["notes"]
+            patient_data["notes"] = ""
+        
+        # Ensure email field exists
+        if "email" not in patient_data:
+            patient_data["email"] = ""
+            
+        # Ensure other required fields exist
+        required_fields = ["name", "email", "dob", "gender", "phone", "address"]
+        for field in required_fields:
+            if field not in patient_data:
+                patient_data[field] = ""
+                
+        data["patient_data"] = patient_data
+    
+    return data
+
+
 def main():
     st.title("Medical Intake Assistant")
 
@@ -353,6 +406,12 @@ def main():
     if "step" not in st.session_state:
         st.session_state.step = "intake"
     # --------------------------------------------------------------
+
+    # Migrate any existing session data
+    if "patient_data" in st.session_state:
+        st.session_state.patient_data = migrate_existing_data({"patient_data": st.session_state.patient_data})["patient_data"]
+    if "final_patient_json" in st.session_state:
+        st.session_state.final_patient_json = migrate_existing_data(st.session_state.final_patient_json)
 
     if st.session_state.step == "intake":
         st.header("Step 1: Patient Intake")
