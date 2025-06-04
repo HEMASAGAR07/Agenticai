@@ -60,21 +60,45 @@ def get_primary_key_column(table):
 
 # Main logic
 def insert_data_from_mapped_json(file_path):
-    data = load_mapped_output(file_path)
+    try:
+        with open(file_path, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"❌ Error reading JSON file: {e}")
+        raise
+
     conn = None
     cursor = None
     inserted_records = []
 
     try:
         print("🔄 Starting database insert...")
+        print(f"📝 Loaded data structure: {json.dumps(data, indent=2)}")
+        
         conn = connect_to_db()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         # Start transaction
         conn.begin()
         
+        # Handle both list and dict formats
+        if isinstance(data, dict):
+            data = [data]
+        elif not isinstance(data, list):
+            raise ValueError(f"Expected list or dict, got {type(data)}")
+            
         for item in data:
-            table = item["table"]
+            if not isinstance(item, dict):
+                print(f"⚠️ Skipping invalid item type {type(item)}: {item}")
+                continue
+                
+            table = item.get("table")
+            if not table:
+                print(f"⚠️ Skipping item without table name: {item}")
+                continue
+
+            print(f"📝 Processing table: {table}")
+            
             if "columns" in item:
                 print(f"📥 Inserting single record into '{table}': {item['columns']}")
                 insert_single_record(cursor, table, item["columns"])
@@ -88,8 +112,13 @@ def insert_data_from_mapped_json(file_path):
                     "type": "single",
                     "pk_column": pk_column
                 })
+                print(f"✅ Inserted single record with ID: {last_id}")
                 
             elif "records" in item:
+                if not item["records"]:  # Skip if records is empty
+                    print(f"⚠️ No records to insert for table {table}")
+                    continue
+                    
                 print(f"📥 Inserting multiple records into '{table}': {item['records']}")
                 insert_multiple_records(cursor, table, item["records"])
                 # Get the number of affected rows
@@ -99,6 +128,7 @@ def insert_data_from_mapped_json(file_path):
                     "count": affected,
                     "type": "multiple"
                 })
+                print(f"✅ Inserted {affected} records")
 
         # Verify all insertions
         print("🔍 Verifying insertions...")
