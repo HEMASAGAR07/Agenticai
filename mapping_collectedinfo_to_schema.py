@@ -80,7 +80,46 @@ def get_mapped_output(raw_data):
         content = content.split("```")[1].strip()
         if content.startswith("json"):
             content = content[len("json"):].strip()
-    return content
+    
+    try:
+        # Parse the JSON string into a Python object
+        mapped_data = json.loads(content)
+        
+        # Validate the structure
+        if not isinstance(mapped_data, list):
+            print("❌ Expected a list of table mappings")
+            return []
+            
+        # Validate each mapping
+        valid_mappings = []
+        for item in mapped_data:
+            if not isinstance(item, dict):
+                print(f"⚠️ Skipping invalid mapping: {item}")
+                continue
+                
+            if "table" not in item:
+                print(f"⚠️ Skipping mapping without table name: {item}")
+                continue
+                
+            if "columns" not in item and "records" not in item:
+                print(f"⚠️ Skipping mapping without columns or records: {item}")
+                continue
+                
+            valid_mappings.append(item)
+            
+        if not valid_mappings:
+            print("❌ No valid mappings found in response")
+            return []
+            
+        return valid_mappings
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ Invalid JSON in LLM response: {str(e)}")
+        print("Raw response:", content)
+        return []
+    except Exception as e:
+        print(f"❌ Error processing mapped data: {str(e)}")
+        return []
 
 # 5. Main driver
 def main():
@@ -97,21 +136,24 @@ def main():
     except FileNotFoundError:
         print(f" File not found: {input_file}")
         return
-
-    print(" Sending data to Gemini for mapping...")
-    mapped_json_str = get_mapped_output(raw_data)
-
-    try:
-        mapped_json = json.loads(mapped_json_str)
-    except json.JSONDecodeError:
-        print(" LLM response is not valid JSON. Here's the raw text:")
-        print(mapped_json_str)
+    except json.JSONDecodeError as e:
+        print(f" Invalid JSON in input file: {str(e)}")
         return
 
-    with open(output_file, "w") as f:
-        json.dump(mapped_json, f, indent=2)
+    print(" Sending data to Gemini for mapping...")
+    mapped_data = get_mapped_output(raw_data)
 
-    print(f" Mapped output saved to: {output_file}")
+    if not mapped_data:
+        print(" ❌ No valid mapped data generated")
+        return
+
+    try:
+        with open(output_file, "w") as f:
+            json.dump(mapped_data, f, indent=2)
+        print(f" ✅ Mapped output saved to: {output_file}")
+        print(f" 📝 Generated {len(mapped_data)} table mappings")
+    except Exception as e:
+        print(f" ❌ Error saving mapped output: {str(e)}")
 
 if __name__ == "__main__":
     main()
