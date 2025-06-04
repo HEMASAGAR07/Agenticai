@@ -106,5 +106,5 @@ def book_appointment_from_json(json_file_path="final_patient_summary.json"):
         conn.close()
 
 # Only run main if script is run directly
-if _name_ == "_main_":
+if __name__ == "__main__":
     print(book_appointment_from_json())
