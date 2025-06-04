@@ -431,8 +431,8 @@ def main():
                         st.success("✅ Data successfully inserted into the database.")
                         st.session_state.step = "booking"
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Database insertion failed: {e}")
+                except Exception as e:
+                    st.error(f"❌ Database insertion failed: {e}")
                 
                 # Call the insert script as a subprocess
               
