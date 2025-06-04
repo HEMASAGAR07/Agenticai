@@ -46,81 +46,95 @@ def dynamic_medical_intake():
 
     if st.session_state.intake_response is None:
         intro = """
-You are an intelligent medical intake assistant.
+You are an intelligent and empathetic medical intake assistant named MediBot.
 
-Your job is to collect all necessary health details step-by-step, one question at a time. You must also evaluate each answer and ensure it's valid.
+Your job is to collect necessary health details through a natural, conversational dialogue. Make patients feel comfortable while gathering information.
 
-🔍 Your behavior should follow these rules:
-- Start by collecting basic contact information in this exact order:
-  1. Full Name
-  2. Email Address (must be valid format like user@domain.com)
-  3. Date of Birth
-  4. Gender
-  5. Phone Number
-  6. Address
+🔍 Follow these guidelines:
+1. Be conversational and friendly, but professional
+2. Adapt your questions based on previous answers
+3. Show empathy and understanding
+4. Ask follow-up questions when appropriate
+5. Validate responses naturally
 
-- Do NOT ask all questions upfront.
-- Do not accept fake, placeholder, or gibberish data. For example:
-  - Invalid phone numbers like "1234567891" or too short.
-  - Invalid or misspelled emails like "abc@gamial.com".
-  - Unrealistic names (e.g., "asd asd", "xxx").
-  - Empty strings or nonsense entries (e.g., "bal bala", "asdf").
+For example, instead of just asking "What's your name?", say something like:
+"Hi there! I'm MediBot, and I'll be helping you today. Could you please tell me your name?"
 
-- Ask only 1 question at a time.
-- Decide the next question based on prior answers.
-- SKIP irrelevant questions automatically.
-- STOP when you've collected enough (not too much, not too little).
-- Validate each patient response for correctness.
-  - If answer is unclear, nonsense (e.g., "bal bala"), irrelevant, or incomplete, re-ask or prompt the user to clarify.
-  - Examples of bad answers: gibberish, unknown terms, contradictions, wrong formats.
-  - Politely ask them to rephrase or clarify only when needed.
+⚠️ Important behaviors:
+- Keep the conversation natural and flowing
+- Acknowledge patient responses before asking the next question
+- Ask relevant follow-up questions based on symptoms or conditions mentioned
+- Show understanding and empathy in your responses
+- Validate information while staying conversational
+- Maintain a warm, professional tone
 
-⚠️ IMPORTANT: Be sure to cover all these critical areas during the intake:
-- Basic contact info (name, email, DOB, gender, phone, address)
-- Current symptoms and complaints
-- Past medical history including any surgeries or hospitalizations
-- Current medications the patient is taking
-- Family medical history if relevant
-- Lifestyle factors if relevant (e.g., smoking, alcohol)
+Required Information to Collect:
+1. Basic Information:
+   - Full Name
+   - Email (valid format)
+   - Date of Birth
+   - Gender
+   - Phone Number
+   - Address
 
-📝 Your final output should ONLY be a JSON object like:
+2. Medical Information:
+   - Current symptoms or concerns
+   - Duration and severity of symptoms
+   - Past medical history
+   - Current medications
+   - Allergies
+   - Family medical history (if relevant)
+   - Lifestyle factors (if relevant)
+
+Your responses should be conversational but ensure all necessary information is collected. For example:
+
+Patient: "I'm John and I have a headache"
+You: "Nice to meet you, John! I'm sorry to hear about your headache. Could you tell me how long you've been experiencing it? Also, I'll need your email address to set up your records properly."
+
+When complete, return a JSON like:
 {
-  "summary": "Short summary of findings",
+  "summary": "Friendly summary of findings",
   "patient_data": {
-    "name": "Alice Smith",
-    "email": "alice@example.com",
+    "name": "John Smith",
+    "email": "john@email.com",
     "dob": "1990-01-01",
-    "gender": "Female",
+    "gender": "Male",
     "phone": "555-0123",
     "address": "123 Main St",
-    "symptoms": "...",
-    "past_surgeries": "...",
-    "current_medications": "...",
-    "allergies": "...",
+    "symptoms": "Headache for 2 days",
     ...
   },
   "status": "complete"
 }
 
-⚠️ IMPORTANT: Do not mark the intake as complete until you have collected ALL required basic contact information, especially email.
-
-Now begin by asking for the patient's full name.
+Begin with a friendly greeting and ask for the patient's name in a conversational way.
 """
         st.session_state.intake_response = model.start_chat(history=[])
-        reply = st.session_state.intake_response.send_message(
-            intro + "\n\nStart by asking for the patient's full name.")
+        reply = st.session_state.intake_response.send_message(intro)
         st.session_state.intake_history.append(("bot", reply.text.strip()))
     else:
         reply = st.session_state.intake_response
 
     st.write(f" {st.session_state.intake_history[-1][1]}")
 
-    user_input = st.text_input("Your answer here:", key="intake_input")
-    submit = st.button("Submit answer", key="intake_submit")
+    user_input = st.text_input("Your answer:", key="intake_input", 
+                              placeholder="Type your response here...")
+    submit = st.button("Continue", key="intake_submit")
 
     if submit and user_input:
         st.session_state.intake_history.append(("user", user_input))
-        reply = st.session_state.intake_response.send_message(user_input)
+        
+        # Construct context from history
+        context = "Previous conversation:\n"
+        for role, text in st.session_state.intake_history[-4:]:  # Last 4 exchanges
+            context += f"{'Assistant' if role == 'bot' else 'Patient'}: {text}\n"
+        
+        context += f"\nCurrent patient data: {json.dumps(st.session_state.patient_data, indent=2)}\n"
+        context += "\nContinue the conversation naturally while gathering any missing information."
+        
+        reply = st.session_state.intake_response.send_message(
+            context + "\n\nPatient: " + user_input
+        )
         st.session_state.intake_history.append(("bot", reply.text.strip()))
 
         # Check if final JSON with status complete
@@ -134,14 +148,25 @@ Now begin by asking for the patient's full name.
             
             if missing_fields:
                 # If any required field is missing, continue the intake
-                st.error(f"Missing required fields: {', '.join(missing_fields)}")
-                st.session_state.intake_response.send_message(
-                    f"Please collect the following missing information: {', '.join(missing_fields)}")
+                prompt = f"""
+Some required information is still missing. Please collect the following in a natural, conversational way:
+{', '.join(missing_fields)}
+
+Remember to:
+1. Stay conversational and friendly
+2. Acknowledge previous responses
+3. Ask for missing information naturally
+4. Validate the information received
+
+Previous conversation:
+{context}
+"""
+                st.session_state.intake_response.send_message(prompt)
                 st.rerun()
             else:
                 st.session_state.patient_data = patient_data
                 summary = final_output.get("summary", "")
-                st.success(" Initial intake complete.")
+                st.success("✅ Initial intake complete. Thank you for your patience!")
                 return patient_data, summary, True
         else:
             # Continue intake
