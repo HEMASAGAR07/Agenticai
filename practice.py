@@ -7,24 +7,9 @@ import mapping_collectedinfo_to_schema  # <-- Add this import at the top
 import mysql.connector
 import subprocess
 import pymysql
+from inserting_JSON_to_DB import db_config,insert_data_from_mapped_json
+from booking import book_appointment_from_json
 
-# Load secrets
-DB_HOST = "shinkansen.proxy.rlwy.net"
-DB_PORT = 10373
-DB_USER = "root"
-DB_PASSWORD = "XsWXLlpGcfGdlAnNSpEkzEZnMvqcBbMp"
-DB_NAME = "railway"
-
-# Connect to the database
-connection = pymysql.connect(
-    host=DB_HOST,
-    port=DB_PORT,
-    user=DB_USER,
-    password=DB_PASSWORD,
-    database=DB_NAME
-)
-
-print("Connected successfully!")
 
 
 # Load environment variables
@@ -96,6 +81,7 @@ Your job is to collect all necessary health details step-by-step, one question a
   "patient_data": {
     "name": "Alice",
     "age": 34,
+    "email": "G2JlB@example.com",
     "gender": "Female",
     "symptoms": "...",
     "past_surgeries": "...",
@@ -440,11 +426,16 @@ def main():
             st.json(mapped_result)
 
             if st.button("Insert into Database"):
+                try:
+                        insert_data_from_mapped_json(mapped_file)
+                        st.success("✅ Data successfully inserted into the database.")
+                        st.session_state.step = "booking"
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Database insertion failed: {e}")
+                
                 # Call the insert script as a subprocess
-                result = subprocess.run(
-                    ["python", "inserting_JSON_to_DB.py", mapped_file],
-                    capture_output=True, text=True
-                )
+              
                 st.text("Insert Script Output:\n" + result.stdout)
                 if result.stderr:
                     st.error("Insert Script Errors:\n" + result.stderr)
@@ -459,11 +450,19 @@ def main():
 
     elif st.session_state.step == "booking":
         st.header("Step 7: Book Appointment with Recommended Specialist")
+        try:
+                result = book_appointment_from_json()  # returns message string or object
+                st.text("Booking Script Output:\n" + result)
+                if "Appointment booked" in result:
+                    st.success("✅ Appointment successfully booked!")
+                elif "No available slots found" in result:
+                    st.warning("⚠️ No available slots found for any recommended specialist in the next 7 days.")
+                else:
+                    st.info("See output above for booking details.")
+            except Exception as e:
+                st.error(f"❌ Booking failed: {e}")
         # Call the booking script as a subprocess
-        result = subprocess.run(
-            ["python", "booking.py"],
-            capture_output=True, text=True
-        )
+      
         st.text("Booking Script Output:\n" + result.stdout)
         if result.stderr:
             st.error("Booking Script Errors:\n" + result.stderr)
