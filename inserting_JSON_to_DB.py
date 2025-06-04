@@ -44,24 +44,66 @@ def load_mapped_output(file_path):
 # Main logic
 def insert_data_from_mapped_json(file_path):
     data = load_mapped_output(file_path)
-    conn = connect_to_db()
-    cursor = conn.cursor()
+    conn = None
+    cursor = None
+    inserted_records = []
 
     try:
+        print("🔄 Starting database insert...")
+        conn = connect_to_db()
+        cursor = conn.cursor()
+
+        # Start transaction
+        conn.begin()
+        
         for item in data:
             table = item["table"]
             if "columns" in item:
+                print(f"📥 Inserting single record into '{table}': {item['columns']}")
                 insert_single_record(cursor, table, item["columns"])
+                # Verify the insertion
+                cursor.execute(f"SELECT LAST_INSERT_ID()")
+                last_id = cursor.fetchone()[0]
+                inserted_records.append({"table": table, "id": last_id, "type": "single"})
+                
             elif "records" in item:
+                print(f"📥 Inserting multiple records into '{table}': {item['records']}")
                 insert_multiple_records(cursor, table, item["records"])
+                # Get the number of affected rows
+                affected = cursor.rowcount
+                inserted_records.append({"table": table, "count": affected, "type": "multiple"})
+
+        # Verify all insertions
+        print("🔍 Verifying insertions...")
+        for record in inserted_records:
+            if record["type"] == "single":
+                cursor.execute(f"SELECT * FROM {record['table']} WHERE id = {record['id']}")
+                result = cursor.fetchone()
+                if not result:
+                    raise Exception(f"Verification failed: Could not find inserted record in {record['table']} with id {record['id']}")
+                print(f"✅ Verified single record in {record['table']} with id {record['id']}")
+            else:
+                print(f"✅ Inserted {record['count']} records into {record['table']}")
+
+        # If we got here, all insertions were successful
         conn.commit()
-        print(" All data inserted into the database.")
+        print("✅ All data inserted and verified in the database.")
+        
+        return {
+            "status": "success",
+            "inserted_records": inserted_records
+        }
+        
     except Exception as e:
-        conn.rollback()
-        print(f" Error inserting data: {e}")
+        if conn:
+            conn.rollback()
+        print(f"❌ Error inserting data: {e}")
+        raise
     finally:
-        cursor.close()
-        conn.close()
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 if __name__ == "__main__":
     insert_data_from_mapped_json("mapped_output.json")
