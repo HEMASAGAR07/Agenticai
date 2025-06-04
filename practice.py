@@ -553,7 +553,7 @@ def main():
                         # Test database connection first
                         st.info("Testing database connection...")
                         conn = pymysql.connect(**db_config)
-                        cursor = conn.cursor()
+                        cursor = conn.cursor(pymysql.cursors.DictCursor)
                         
                         # Verify we can read from the database
                         st.info("Verifying database read access...")
@@ -566,79 +566,42 @@ def main():
                         table_counts_before = {}
                         for table in tables:
                             cursor.execute(f"SELECT COUNT(*) FROM {table[0]}")
-                            table_counts_before[table[0]] = cursor.fetchone()[0]
+                            table_counts_before[table[0]] = cursor.fetchone()['COUNT(*)']
                         st.write("Initial record counts:", table_counts_before)
                         
                         # Proceed with insertion
                         st.info("Starting data insertion...")
-                        insert_data_from_mapped_json(mapped_file)
+                        result = insert_data_from_mapped_json(mapped_file)
                         
-                        # Verify the insertion by checking record counts
-                        st.info("Verifying insertion...")
-                        table_counts_after = {}
-                        for table in tables:
-                            cursor.execute(f"SELECT COUNT(*) FROM {table[0]}")
-                            table_counts_after[table[0]] = cursor.fetchone()[0]
-                        
-                        # Compare counts
-                        changes = {}
-                        for table in table_counts_before:
-                            diff = table_counts_after[table] - table_counts_before[table]
-                            if diff > 0:
-                                changes[table] = diff
-                        
-                        if changes:
-                            st.success("✅ Data successfully inserted into the database.")
-                            st.write("Records added:", changes)
+                        if result.get("status") == "success":
+                            st.success("✅ Data successfully inserted into the database!")
                             
-                            # Verify the most recently inserted data
-                            st.info("Verifying most recent records...")
-                            for table in changes:
-                                if changes[table] > 0:
-                                    cursor.execute(f"SELECT * FROM {table} ORDER BY CASE WHEN patient_id IS NOT NULL THEN patient_id ELSE id END DESC LIMIT 1")
-                                    recent_record = cursor.fetchone()
-                                    if recent_record:
-                                        st.write(f"Most recent {table} record:", dict(zip([col[0] for col in cursor.description], recent_record)))
+                            # Show insertion summary
+                            st.write("Records inserted:")
+                            for record in result.get("inserted_records", []):
+                                if record["type"] == "single":
+                                    st.write(f"- Added 1 record to {record['table']} (ID: {record['id']})")
+                                else:
+                                    st.write(f"- Added {record['count']} records to {record['table']}")
                             
-                            cursor.close()
-                            conn.close()
-                            st.session_state.step = "booking"
-                            st.rerun()
+                            # Add a button to proceed to booking
+                            if st.button("Proceed to Booking"):
+                                st.session_state.step = "booking"
+                                st.rerun()
                         else:
-                            st.warning("⚠️ No new records were added to the database. This might indicate an issue.")
-                            st.write("Before counts:", table_counts_before)
-                            st.write("After counts:", table_counts_after)
+                            st.error("❌ Data insertion failed")
                             
-                    except pymysql.Error as e:
-                        st.error(f"❌ Database connection/insertion failed: {str(e)}")
-                        st.error("Error Code: " + str(getattr(e, 'args', ['Unknown'])[0]))
-                        st.error("Error Message: " + str(getattr(e, 'args', ['Unknown'])[1]))
-                        
-                        # Additional database error debugging
-                        st.error("Database Connection Details (for debugging):")
-                        st.json({
-                            "host": db_config["host"],
-                            "user": db_config["user"],
-                            "database": db_config["database"],
-                            "port": db_config["port"]
-                        })
-                        
                     except Exception as e:
-                        st.error(f"❌ Other error during insertion: {str(e)}")
+                        st.error(f"❌ Error during database operation: {str(e)}")
                         import traceback
                         st.error("Full error trace: " + traceback.format_exc())
-                        
-                        # Try to get more details about the mapped data
-                        st.error("Mapped Data Structure (for debugging):")
-                        st.json(mapped_result)
                     finally:
-                        if 'conn' in locals() and conn:
+                        if 'cursor' in locals():
+                            cursor.close()
+                        if 'conn' in locals():
                             conn.close()
-                            
-            except json.JSONDecodeError as e:
-                st.error(f"❌ Error reading mapped file: {str(e)}")
             except Exception as e:
-                st.error(f"❌ Unexpected error: {str(e)}")
+                st.error(f"❌ Error: {str(e)}")
         else:
             st.error("Mapped output file not found. Please complete mapping step first.")
 
@@ -651,8 +614,15 @@ def main():
                 patient_data = json.load(f)
             
             # Show the data being used for booking
-            st.write("Patient data being used for booking:")
-            st.json(patient_data.get("patient_data", {}))
+            with st.expander("View Patient Data"):
+                st.json(patient_data.get("patient_data", {}))
+            
+            # Show recommended specialists
+            specialists = patient_data.get("recommended_specialist", [])
+            if specialists:
+                st.write("Recommended Specialists:")
+                for specialist in specialists:
+                    st.write(f"- {specialist}")
             
             if not patient_data.get("patient_data", {}).get("email"):
                 st.error("❌ Email is missing in the patient data. Please complete the patient information first.")
@@ -661,17 +631,28 @@ def main():
                     st.rerun()
                 return
             
-            result = book_appointment_from_json()  # returns message string or object
-            if isinstance(result, str):
-                st.text("Booking Script Output:\n" + result)
-                if "Appointment booked" in result:
-                    st.success("✅ Appointment successfully booked!")
-                elif "No available slots found" in result:
-                    st.warning("⚠️ No available slots found for any recommended specialist in the next 7 days.")
-                else:
-                    st.info("See output above for booking details.")
-            else:
-                st.error("Unexpected result format from booking function")
+            # Add a button to initiate booking
+            if st.button("Book Appointment"):
+                try:
+                    result = book_appointment_from_json()  # returns message string or object
+                    if isinstance(result, str):
+                        if "Appointment booked" in result:
+                            st.success("✅ " + result)
+                            # Show finish button only after successful booking
+                            if st.button("Finish"):
+                                st.session_state.step = "done"
+                                st.rerun()
+                        elif "No available slots found" in result:
+                            st.warning("⚠️ " + result)
+                        else:
+                            st.info(result)
+                    else:
+                        st.error("Unexpected result format from booking function")
+                except Exception as e:
+                    st.error(f"❌ Booking failed: {str(e)}")
+                    import traceback
+                    st.error("Full error trace: " + traceback.format_exc())
+                    
         except FileNotFoundError:
             st.error("❌ Patient data file not found. Please complete the patient information first.")
             if st.button("Go Back to Patient Info"):
@@ -679,26 +660,20 @@ def main():
                 st.rerun()
         except json.JSONDecodeError:
             st.error("❌ Error reading patient data file. The file might be corrupted.")
-        except ValueError as e:
-            st.error(f"❌ {str(e)}")
-            if "email" in str(e).lower():
-                if st.button("Go Back to Patient Info"):
-                    st.session_state.step = "confirm"
-                    st.rerun()
         except Exception as e:
-            st.error(f"❌ Booking failed: {str(e)}")
-            st.error("Full error details:")
-            import traceback
-            st.code(traceback.format_exc())
-        
-        # Show a "Finish" button to move to done step
-        if st.button("Finish"):
-            st.session_state.step = "done"
-            st.rerun()
+            st.error(f"❌ Unexpected error: {str(e)}")
 
-    else:
-        st.header("All steps completed.")
-        st.write("Thank you! The medical intake process is finished.")
+    else:  # done step
+        st.header("All steps completed!")
+        st.success("Thank you for using the Medical Intake Assistant!")
+        
+        # Add a restart button
+        if st.button("Start New Intake"):
+            # Clear session state
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.session_state.step = "intake"
+            st.rerun()
 
 if __name__ == "__main__":
     main()
