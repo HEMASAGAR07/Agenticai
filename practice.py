@@ -68,7 +68,7 @@ Your job is to collect all necessary health details step-by-step, one question a
   - Politely ask them to rephrase or clarify only when needed.
 
 ⚠️ IMPORTANT: Be sure to cover all these critical areas during the intake:
-- Patient's name , patient email
+- Patient's name
 - Current symptoms and complaints
 - Past medical history including any surgeries or hospitalizations
 - Current medications the patient is taking
@@ -224,12 +224,15 @@ Given the patient data JSON below, check if ALL mandatory fields are present.
 
 Mandatory fields:
 
-- From Patient: "name" (maps to full_name), "email", "age", "gender", "Ph Number" (phone), "Address" (address)
+- From Patient: "name", "email", "age", "gender", "Ph Number" (phone), "Address" (address)
 - If "symptoms" == "yes": "symptom_list" required (comma-separated string)
 - If "allergies" == "yes": "allergy_list" required
 - If "medications" == "yes": "medication_list" required
 - If "past_history" == "yes": "past_illness" required
 - If surgery info present: "procedure_name", "surgery_date", "hospital_name" required
+
+⚠️ IMPORTANT: The email field MUST be present and valid (e.g., user@domain.com format).
+If email is missing or invalid, you MUST ask for it first before any other fields.
 
 If any mandatory fields are missing or empty, ask the patient directly to provide them one by one.
 
@@ -243,7 +246,7 @@ Here is the patient data:
 
 {json.dumps(final_json, indent=2)}
 
-Begin your check and ask for missing info as needed.
+Begin your check and ask for missing info as needed, starting with email if it's missing or invalid.
 """
         st.session_state.confirm_response = model.start_chat(history=[])
         reply = st.session_state.confirm_response.send_message(prompt)
@@ -263,10 +266,10 @@ Begin your check and ask for missing info as needed.
         u_input = user_input.strip()
         d = st.session_state.updated_final_data.get("patient_data", {})
 
-        if "name" in last_bot_msg:
-            d["name"] = u_input
-        elif "email" in last_bot_msg:
+        if "email" in last_bot_msg:
             d["email"] = u_input
+        elif "name" in last_bot_msg:
+            d["name"] = u_input
         elif "age" in last_bot_msg:
             try:
                 d["age"] = int(u_input)
@@ -302,12 +305,20 @@ Begin your check and ask for missing info as needed.
 
         st.session_state.updated_final_data["patient_data"] = d
 
+        # Debug: Show current data state
+        st.write("Current data state:")
+        st.json(st.session_state.updated_final_data)
+
         reply = st.session_state.confirm_response.send_message(user_input)
         st.session_state.confirm_history.append(("bot", reply.text.strip()))
 
         # Check for confirmation
         result = extract_json(reply.text)
         if result.get("status") == "confirmed":
+            # Ensure email exists before proceeding
+            if "email" not in d or not d["email"]:
+                st.error("Email is required. Please provide a valid email address.")
+                return st.session_state.updated_final_data, False, "Email is required"
             return st.session_state.updated_final_data, True, result.get("message", "")
         else:
             st.rerun()
@@ -438,23 +449,88 @@ def main():
                         # Test database connection first
                         st.info("Testing database connection...")
                         conn = pymysql.connect(**db_config)
-                        st.success("Database connection successful!")
-                        conn.close()
-
+                        cursor = conn.cursor()
+                        
+                        # Verify we can read from the database
+                        st.info("Verifying database read access...")
+                        cursor.execute("SHOW TABLES")
+                        tables = cursor.fetchall()
+                        st.write("Available tables:", [table[0] for table in tables])
+                        
+                        # Get initial record counts
+                        st.info("Getting initial record counts...")
+                        table_counts_before = {}
+                        for table in tables:
+                            cursor.execute(f"SELECT COUNT(*) FROM {table[0]}")
+                            table_counts_before[table[0]] = cursor.fetchone()[0]
+                        st.write("Initial record counts:", table_counts_before)
+                        
                         # Proceed with insertion
                         st.info("Starting data insertion...")
                         insert_data_from_mapped_json(mapped_file)
-                        st.success("✅ Data successfully inserted into the database.")
-                        st.session_state.step = "booking"
-                        st.rerun()
+                        
+                        # Verify the insertion by checking record counts
+                        st.info("Verifying insertion...")
+                        table_counts_after = {}
+                        for table in tables:
+                            cursor.execute(f"SELECT COUNT(*) FROM {table[0]}")
+                            table_counts_after[table[0]] = cursor.fetchone()[0]
+                        
+                        # Compare counts
+                        changes = {}
+                        for table in table_counts_before:
+                            diff = table_counts_after[table] - table_counts_before[table]
+                            if diff > 0:
+                                changes[table] = diff
+                        
+                        if changes:
+                            st.success("✅ Data successfully inserted into the database.")
+                            st.write("Records added:", changes)
+                            
+                            # Verify the most recently inserted data
+                            st.info("Verifying most recent records...")
+                            for table in changes:
+                                if changes[table] > 0:
+                                    cursor.execute(f"SELECT * FROM {table} ORDER BY CASE WHEN patient_id IS NOT NULL THEN patient_id ELSE id END DESC LIMIT 1")
+                                    recent_record = cursor.fetchone()
+                                    if recent_record:
+                                        st.write(f"Most recent {table} record:", dict(zip([col[0] for col in cursor.description], recent_record)))
+                            
+                            cursor.close()
+                            conn.close()
+                            st.session_state.step = "booking"
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ No new records were added to the database. This might indicate an issue.")
+                            st.write("Before counts:", table_counts_before)
+                            st.write("After counts:", table_counts_after)
+                            
                     except pymysql.Error as e:
                         st.error(f"❌ Database connection/insertion failed: {str(e)}")
                         st.error("Error Code: " + str(getattr(e, 'args', ['Unknown'])[0]))
                         st.error("Error Message: " + str(getattr(e, 'args', ['Unknown'])[1]))
+                        
+                        # Additional database error debugging
+                        st.error("Database Connection Details (for debugging):")
+                        st.json({
+                            "host": db_config["host"],
+                            "user": db_config["user"],
+                            "database": db_config["database"],
+                            "port": db_config["port"]
+                        })
+                        
                     except Exception as e:
                         st.error(f"❌ Other error during insertion: {str(e)}")
                         import traceback
                         st.error("Full error trace: " + traceback.format_exc())
+                        
+                        # Try to get more details about the mapped data
+                        st.error("Mapped Data Structure (for debugging):")
+                        st.json(mapped_result)
+                    finally:
+                        if 'conn' in locals() and conn:
+                            conn.close()
+                            
             except json.JSONDecodeError as e:
                 st.error(f"❌ Error reading mapped file: {str(e)}")
             except Exception as e:
@@ -464,7 +540,23 @@ def main():
 
     elif st.session_state.step == "booking":
         st.header("Step 7: Book Appointment with Recommended Specialist")
+        
+        # First verify we have the patient data with email
         try:
+            with open("final_patient_summary.json", "r") as f:
+                patient_data = json.load(f)
+            
+            # Show the data being used for booking
+            st.write("Patient data being used for booking:")
+            st.json(patient_data.get("patient_data", {}))
+            
+            if not patient_data.get("patient_data", {}).get("email"):
+                st.error("❌ Email is missing in the patient data. Please complete the patient information first.")
+                if st.button("Go Back to Patient Info"):
+                    st.session_state.step = "confirm"
+                    st.rerun()
+                return
+            
             result = book_appointment_from_json()  # returns message string or object
             if isinstance(result, str):
                 st.text("Booking Script Output:\n" + result)
@@ -476,8 +568,24 @@ def main():
                     st.info("See output above for booking details.")
             else:
                 st.error("Unexpected result format from booking function")
+        except FileNotFoundError:
+            st.error("❌ Patient data file not found. Please complete the patient information first.")
+            if st.button("Go Back to Patient Info"):
+                st.session_state.step = "confirm"
+                st.rerun()
+        except json.JSONDecodeError:
+            st.error("❌ Error reading patient data file. The file might be corrupted.")
+        except ValueError as e:
+            st.error(f"❌ {str(e)}")
+            if "email" in str(e).lower():
+                if st.button("Go Back to Patient Info"):
+                    st.session_state.step = "confirm"
+                    st.rerun()
         except Exception as e:
-            st.error(f"❌ Booking failed: {e}")
+            st.error(f"❌ Booking failed: {str(e)}")
+            st.error("Full error details:")
+            import traceback
+            st.code(traceback.format_exc())
         
         # Show a "Finish" button to move to done step
         if st.button("Finish"):
