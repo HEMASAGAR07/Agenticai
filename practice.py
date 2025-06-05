@@ -315,8 +315,38 @@ def dynamic_medical_intake():
             if final_output.get("status") == "complete":
                 if st.session_state.db_data_retrieved:
                     final_output["patient_data"].update(st.session_state.patient_data)
+                
+                # Get specialist recommendations immediately
+                specialists, rationale = recommend_specialist(final_output["patient_data"])
+                final_output["recommended_specialist"] = specialists
+                final_output["specialist_rationale"] = rationale
+                
                 st.success("✅ Medical intake completed successfully!")
-                return final_output.get("patient_data", {}), final_output.get("summary", ""), True
+                st.write("### Recommended Specialists")
+                st.write("Based on your symptoms and medical history:")
+                for specialist in specialists:
+                    st.write(f"👨‍⚕️ {specialist}")
+                st.write(f"**Rationale:** {rationale}")
+                
+                # Save the complete data
+                st.session_state.final_patient_json = final_output
+                
+                # Proceed to mapping
+                try:
+                    mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_output)
+                    st.success("✅ Data mapped successfully!")
+                    
+                    # Save mapped data
+                    with open("mapped_output.json", "w") as f:
+                        json.dump(mapped_result, f, indent=2)
+                    
+                    st.session_state.mapped_patient_data = mapped_result
+                    st.session_state.step = "db_insert"
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Mapping failed: {str(e)}")
+                
+                return final_output["patient_data"], final_output.get("summary", ""), True
             st.rerun()
         return {}, "", False
 
@@ -810,7 +840,8 @@ def main():
     if "step" not in st.session_state:
         st.session_state.step = "intake"
     
-    steps = ["intake", "followup", "specialist", "confirm", "mapping", "db_insert", "booking"]
+    # Simplified steps
+    steps = ["intake", "db_insert", "booking"]
     current_step = steps.index(st.session_state.step) + 1
     progress = current_step / len(steps)
     
@@ -830,159 +861,22 @@ def main():
     if st.session_state.step == "intake":
         st.markdown("""
             <div class='step-header'>
-                <h2>Step 1: Patient Intake</h2>
-                <p>Let's start by gathering your basic information</p>
+                <h2>Step 1: Patient Intake & Assessment</h2>
+                <p>Let's gather your information and understand your health concerns</p>
             </div>
         """, unsafe_allow_html=True)
         
         patient_data, summary, done = dynamic_medical_intake()
         if done:
-            st.markdown("""
-                <div class='success-message'>
-                    ✅ Patient intake completed successfully!
-                </div>
-            """, unsafe_allow_html=True)
-            st.markdown(f"""
-                <div class='info-box'>
-                    <h4>Summary</h4>
-                    <p>{summary}</p>
-                </div>
-            """, unsafe_allow_html=True)
-            st.session_state.patient_data = patient_data
-            st.session_state.summary = summary
-            st.session_state.step = "followup"
-            st.rerun()
-
-    elif st.session_state.step == "followup":
-        st.markdown("""
-            <div class='step-header'>
-                <h2>Step 2: Follow-up Questions</h2>
-                <p>Let's get some additional details to better understand your needs</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        patient_data = st.session_state.get("patient_data", {})
-        updated_data, notes, done = post_analysis_and_followup(patient_data)
-        if done:
-            st.markdown("""
-                <div class='success-message'>
-                    ✅ Follow-up questions completed!
-                </div>
-            """, unsafe_allow_html=True)
-            if notes:
-                st.markdown(f"""
-                    <div class='info-box'>
-                        <h4>Additional Notes</h4>
-                        <p>{notes}</p>
-                    </div>
-                """, unsafe_allow_html=True)
-            st.session_state.patient_data = updated_data
-            st.session_state.followup_notes = notes
-            st.session_state.step = "specialist"
-            st.rerun()
-
-    elif st.session_state.step == "specialist":
-        st.markdown("""
-            <div class='step-header'>
-                <h2>Step 3: Specialist Recommendation</h2>
-                <p>Let's find the right specialist for you</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        patient_data = st.session_state.get("patient_data", {})
-        specialists, rationale = recommend_specialist(patient_data)
-        st.write("Recommended Specialists:", specialists)
-        st.write("Rationale:", rationale)
-        st.session_state.recommended_specialist = specialists
-        st.session_state.specialist_rationale = rationale
-        st.session_state.step = "confirm"
-        st.rerun()
-
-    elif st.session_state.step == "confirm":
-        st.markdown("""
-            <div class='step-header'>
-                <h2>Step 4: Confirm Mandatory Fields</h2>
-                <p>Let's ensure all your information is correct</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # Build the final JSON in your required format
-        patient_data = st.session_state.get("patient_data", {})
-        summary = st.session_state.get("summary", "")
-        followup_notes = st.session_state.get("followup_notes", "")
-        recommended_specialist = st.session_state.get("recommended_specialist", [])
-        specialist_rationale = st.session_state.get("specialist_rationale", "")
-        final_json = {
-            "summary": summary,
-            "patient_data": patient_data,
-            "followup_notes": followup_notes,
-            "recommended_specialist": recommended_specialist,
-            "specialist_rationale": specialist_rationale,
-            "status": "complete"
-        }
-        updated_data, confirmed, message = confirm_mandatory_fields(final_json)
-        if confirmed:
-            st.markdown("""
-                <div class='success-message'>
-                    ✅ Mandatory fields confirmed!
-                </div>
-            """, unsafe_allow_html=True)
-            st.markdown(f"""
-                <div class='info-box'>
-                    <h4>Final Patient Data</h4>
-                    <p>{json.dumps(updated_data, indent=2)}</p>
-                </div>
-            """, unsafe_allow_html=True)
-            st.session_state.final_patient_json = updated_data
-            with open("final_patient_summary.json", "w") as f:
-                json.dump(updated_data, f, indent=2)
-            st.session_state.step = "mapping"  # <-- Move to mapping step
-            st.rerun()
-        else:
-            st.info("Please provide the missing information.")
-
-    elif st.session_state.step == "mapping":
-        st.markdown("""
-            <div class='step-header'>
-                <h2>Step 5: Map Collected Info to DB Schema</h2>
-                <p>Let's ensure your data is correctly mapped to our database</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # Always use the latest confirmed data
-        patient_json = st.session_state.get("final_patient_json", {})
-        if patient_json:
-            # Optionally save patient_json to disk (already done in confirm step)
-            st.write("Patient JSON data ready for mapping.")
-    
-            # Call your mapping function from the imported module
-            try:
-                # Assuming your mapping module has a function like:
-                # get_mapped_output(patient_json) -> dict
-                mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(patient_json)
-                st.success("Mapping to DB schema completed successfully.")
-                st.json(mapped_result)  # Show mapped data for verification
-    
-                # Save mapped data if you want
-                with open("mapped_output.json", "w") as f:
-                    json.dump(mapped_result, f, indent=2)
-    
-                # Proceed to next step or finish workflow
-                st.session_state.mapped_patient_data = mapped_result # or any next step
-                st.write("Mapping complete. You can now use this data to insert into your DB.")
-                st.session_state.step = "db_insert" 
-                st.rerun()
-                return
-            except Exception as e:
-                st.error(f"Mapping failed: {e}")
-        else:
-            st.warning("No confirmed patient JSON data available yet.")
+            # The specialist recommendation and mapping are now handled in dynamic_medical_intake
+            # We'll automatically move to db_insert step
+            pass
 
     elif st.session_state.step == "db_insert":
         st.markdown("""
             <div class='step-header'>
-                <h2>Step 6: Review and Insert Data into Database</h2>
-                <p>Let's ensure your data is correctly inserted into our database</p>
+                <h2>Step 2: Saving Your Information</h2>
+                <p>Let's save your information securely</p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -991,110 +885,40 @@ def main():
             try:
                 with open(mapped_file, "r") as f:
                     mapped_result = json.load(f)
-                st.subheader("Mapped JSON to be Inserted")
-                st.json(mapped_result)
 
                 # Debug: Show database configuration (with password hidden)
                 debug_config = dict(db_config)
                 if "password" in debug_config:
                     debug_config["password"] = "**"
-                st.write("Database Configuration:")
-                st.json(debug_config)
 
                 # Check if data has been inserted successfully
                 if "db_insert_success" in st.session_state and st.session_state.db_insert_success:
-                    st.success("✅ Data has been successfully inserted into the database!")
+                    st.success("✅ Data has been successfully saved!")
                     if st.button("Proceed to Booking", key="proceed_to_booking"):
                         st.session_state.step = "booking"
                         st.rerun()
                     return
 
-                if st.button("Insert into Database", key="insert_db"):
+                if st.button("Save Information", key="insert_db"):
                     try:
                         # Test database connection first
                         st.info("Testing database connection...")
                         conn = pymysql.connect(**db_config)
                         cursor = conn.cursor(pymysql.cursors.DictCursor)
                         
-                        # Verify we can read from the database
-                        st.info("Verifying database read access...")
-                        cursor.execute("SHOW TABLES")
-                        tables = cursor.fetchall()
-                        # Extract table names from DictCursor result
-                        table_names = [list(table.values())[0] for table in tables]
-                        st.write("Available tables:", table_names)
-                        
-                        # Get initial record counts
-                        st.info("Getting initial record counts...")
-                        table_counts_before = {}
-                        for table_name in table_names:
-                            cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
-                            result = cursor.fetchone()
-                            table_counts_before[table_name] = result['count']
-                        st.write("Initial record counts:", table_counts_before)
-                        
-                        # Proceed with insertion
-                        st.info("Starting data insertion...")
-                        email = mapped_result["patient_data"]["email"]
-                        patient_id = check_patient_exists(cursor, email)
-                        last_update = get_last_update_timestamp(cursor, patient_id)
-
-                        if patient_id:
-                            # Save current state
-                            operation_id = str(uuid.uuid4())
-                            save_operation_state(operation_id, {
-                                "patient_id": patient_id,
-                                "last_update": last_update,
-                                "original_data": mapped_result["patient_data"]
-                            })
-                            # Perform update
-                            handle_table_operation(cursor, "patients", mapped_result["patient_data"], {"patient_id": patient_id})
-                        else:
-                            # Create new patient record
-                            insert_single_record(cursor, "patients", mapped_result["patient_data"])
-                            patient_id = cursor.lastrowid
-
-                        # 2. For other tables (symptoms, medications, etc.):
-                        for table in ["symptoms", "medications", "allergies"]:
-                            # Delete existing records for this patient
-                            update_multiple_records(cursor, table, mapped_result["patient_data"][f"{table}_list"], patient_id, table)
-                            
-                            # Verify medical terms
-                            if table in ["medications", "symptoms", "allergies"]:
-                                verify_medical_terms(mapped_result["patient_data"][f"{table}_list"], table)
+                        # Insert data into database
+                        result = insert_data_from_mapped_json(mapped_result)
                         
                         if result.get("status") == "success":
-                            st.success("✅ Data successfully inserted into the database!")
-                            
-                            # Show insertion summary
-                            st.write("Records inserted:")
-                            for record in result.get("inserted_records", []):
-                                if record["type"] == "single":
-                                    st.write(f"- Added 1 record to {record['table']} (ID: {record['id']})")
-                                else:
-                                    st.write(f"- Added {record['count']} records to {record['table']}")
-                            
-                            # Set success flag and show proceed button
+                            st.success("✅ Your information has been saved successfully!")
                             st.session_state.db_insert_success = True
-                            st.rerun()  # Rerun to show the proceed button
+                            st.rerun()
                         else:
-                            st.error("❌ Data insertion failed")
+                            st.error("❌ Failed to save your information")
                             st.session_state.db_insert_success = False
-                            
-                            # If operation fails
-                            save_operation_state(operation_id, {
-                                "error": str(e),
-                                "patient_id": patient_id,
-                                "last_successful_operation": last_op
-                            })
-
-                            # Can recover later using
-                            recover_failed_operation(operation_id)
 
                     except Exception as e:
                         st.error(f"❌ Error during database operation: {str(e)}")
-                        import traceback
-                        st.error("Full error trace: " + traceback.format_exc())
                     finally:
                         if 'cursor' in locals():
                             cursor.close()
@@ -1103,94 +927,62 @@ def main():
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
         else:
-            st.error("Mapped output file not found. Please complete mapping step first.")
+            st.error("Data not ready for saving. Please complete the intake first.")
 
     elif st.session_state.step == "booking":
         st.markdown("""
             <div class='step-header'>
-                <h2>Step 7: Book Appointment with Recommended Specialist</h2>
+                <h2>Step 3: Book Appointment</h2>
                 <p>Let's schedule your appointment with the recommended specialist</p>
             </div>
         """, unsafe_allow_html=True)
         
-        # Verify that we came from a successful database insertion
         if not st.session_state.get("db_insert_success", False):
-            st.warning("⚠️ Please complete the database insertion step first")
-            if st.button("Go Back to Database Insertion"):
+            st.warning("⚠️ Please complete the previous step first")
+            if st.button("Go Back"):
                 st.session_state.step = "db_insert"
                 st.rerun()
             return
         
-        # First verify we have the patient data with email
         try:
             with open("final_patient_summary.json", "r") as f:
                 patient_data = json.load(f)
             
-            # Show the data being used for booking
-            with st.expander("View Patient Data"):
-                st.json(patient_data.get("patient_data", {}))
-            
-            # Show recommended specialists
             specialists = patient_data.get("recommended_specialist", [])
             if specialists:
                 st.write("Recommended Specialists:")
                 for specialist in specialists:
-                    st.write(f"- {specialist}")
+                    st.write(f"👨‍⚕️ {specialist}")
             
-            if not patient_data.get("patient_data", {}).get("email"):
-                st.error("❌ Email is missing in the patient data. Please complete the patient information first.")
-                if st.button("Go Back to Patient Info"):
-                    st.session_state.step = "confirm"
-                    st.rerun()
-                return
-            
-            # Add a button to initiate booking
-            book_button = st.button("Book Appointment", key="book_appointment")
-            if book_button:
+            if st.button("Book Appointment", key="book_appointment"):
                 try:
-                    result = book_appointment_from_json()  # returns message string or object
+                    result = book_appointment_from_json()
                     if isinstance(result, str):
                         if "Appointment booked" in result:
                             st.success("✅ " + result)
                             st.session_state.booking_success = True
-                            # Show finish button only after successful booking
-                            finish_button = st.button("Finish", key="finish_booking")
-                            if finish_button:
+                            if st.button("Finish", key="finish_booking"):
                                 st.session_state.step = "done"
                                 st.rerun()
-                        elif "No available slots found" in result:
-                            st.warning("⚠️ " + result)
-                            st.session_state.booking_success = False
                         else:
                             st.info(result)
-                    else:
-                        st.error("Unexpected result format from booking function")
                 except Exception as e:
                     st.error(f"❌ Booking failed: {str(e)}")
-                    import traceback
-                    st.error("Full error trace: " + traceback.format_exc())
                     
         except FileNotFoundError:
-            st.error("❌ Patient data file not found. Please complete the patient information first.")
-            if st.button("Go Back to Patient Info"):
-                st.session_state.step = "confirm"
-                st.rerun()
-        except json.JSONDecodeError:
-            st.error("❌ Error reading patient data file. The file might be corrupted.")
+            st.error("❌ Patient data not found. Please complete the intake first.")
         except Exception as e:
             st.error(f"❌ Unexpected error: {str(e)}")
 
     else:  # done step
         st.markdown("""
             <div class='step-header'>
-                <h2>All steps completed!</h2>
-                <p>Thank you for using the Medical Intake Assistant!</p>
+                <h2>All Done!</h2>
+                <p>Thank you for using our Medical Intake Assistant</p>
             </div>
         """, unsafe_allow_html=True)
         
-        # Add a restart button
         if st.button("Start New Intake"):
-            # Clear session state
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.session_state.step = "intake"
