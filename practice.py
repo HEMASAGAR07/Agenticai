@@ -125,24 +125,71 @@ def get_user_from_db(email):
         conn = pymysql.connect(**db_config)
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         
-        # Query to get user details from patients table
+        # First get patient basic info
         cursor.execute("""
-            SELECT p.*, 
-                   GROUP_CONCAT(DISTINCT s.symptom_name) as previous_symptoms,
-                   GROUP_CONCAT(DISTINCT m.medication_name) as previous_medications,
-                   GROUP_CONCAT(DISTINCT a.allergy_name) as previous_allergies
+            SELECT 
+                p.patient_id,
+                p.full_name,
+                p.age,
+                p.gender,
+                p.email,
+                p.phone,
+                p.address,
+                p.DOB
             FROM patients p
-            LEFT JOIN symptoms s ON p.patient_id = s.patient_id
-            LEFT JOIN medications m ON p.patient_id = m.patient_id
-            LEFT JOIN allergies a ON p.patient_id = a.patient_id
             WHERE p.email = %s
-            GROUP BY p.patient_id
         """, (email,))
         
         user_data = cursor.fetchone()
         if user_data:
             # Convert to regular dict and clean up None values
             user_data = dict(user_data)
+            
+            # Get symptoms
+            cursor.execute("""
+                SELECT GROUP_CONCAT(
+                    CONCAT(symptom_description, ' (', severity, ', ', duration, ')')
+                ) as symptoms_list
+                FROM symptoms 
+                WHERE patient_id = %s
+            """, (user_data['patient_id'],))
+            symptoms_result = cursor.fetchone()
+            user_data['previous_symptoms'] = symptoms_result['symptoms_list'] if symptoms_result and symptoms_result['symptoms_list'] else ""
+            
+            # Get medications
+            cursor.execute("""
+                SELECT GROUP_CONCAT(
+                    CONCAT(medication_name, ' (', dosage, ')')
+                ) as medications_list
+                FROM medications 
+                WHERE patient_id = %s
+            """, (user_data['patient_id'],))
+            medications_result = cursor.fetchone()
+            user_data['previous_medications'] = medications_result['medications_list'] if medications_result and medications_result['medications_list'] else ""
+            
+            # Get allergies
+            cursor.execute("""
+                SELECT GROUP_CONCAT(
+                    CONCAT(substance, ' (', severity, ')')
+                ) as allergies_list
+                FROM allergies 
+                WHERE patient_id = %s
+            """, (user_data['patient_id'],))
+            allergies_result = cursor.fetchone()
+            user_data['previous_allergies'] = allergies_result['allergies_list'] if allergies_result and allergies_result['allergies_list'] else ""
+            
+            # Get surgeries
+            cursor.execute("""
+                SELECT GROUP_CONCAT(
+                    CONCAT(procedure_name, ' at ', hospital_name, ' on ', surgery_date)
+                ) as surgeries_list
+                FROM surgeries 
+                WHERE patient_id = %s
+            """, (user_data['patient_id'],))
+            surgeries_result = cursor.fetchone()
+            user_data['previous_surgeries'] = surgeries_result['surgeries_list'] if surgeries_result and surgeries_result['surgeries_list'] else ""
+            
+            # Clean up None values
             for key in user_data:
                 if user_data[key] is None:
                     user_data[key] = ""
