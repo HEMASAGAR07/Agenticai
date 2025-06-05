@@ -122,6 +122,7 @@ Your job is to collect necessary health details step-by-step, ensuring each answ
 
 🔍 Guidelines:
 - Ask concise questions, one at a time.
+- Accept valid answers and proceed to the next question.
 - Avoid fake or placeholder data.
 - Skip irrelevant questions.
 - Stop when enough information is collected.
@@ -151,7 +152,7 @@ Your job is to collect necessary health details step-by-step, ensuring each answ
   "status": "complete"
 }
 
-Begin by asking the first question. Keep questions short and avoid repetition.
+Begin by asking the first question. Keep questions short, avoid repetition, and acknowledge valid answers.
 """
         st.session_state.intake_response = model.start_chat(history=[])
         reply = st.session_state.intake_response.send_message(intro)
@@ -197,6 +198,9 @@ Begin by asking the first question. Keep questions short and avoid repetition.
             validation_prompt += "\nIf any information is incorrect, please provide the correct details."
             reply = st.session_state.intake_response.send_message(validation_prompt)
             st.session_state.intake_history.append(("bot", reply.text.strip()))
+
+        # Debug: Log the reply text to diagnose issues
+        st.write("Debug: LLM Reply Text:", reply.text)
 
         # Check if final JSON with status complete
         final_output = extract_json(reply.text)
