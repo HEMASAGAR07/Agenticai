@@ -43,71 +43,46 @@ def dynamic_medical_intake():
         st.session_state.intake_response = None
     if "patient_data" not in st.session_state:
         st.session_state.patient_data = {}
+    if "name_collected" not in st.session_state:
+        st.session_state.name_collected = False
 
     if st.session_state.intake_response is None:
         intro = """
-You are an intelligent and empathetic medical intake assistant named MediBot.
+You are MediBot, a concise medical intake assistant.
 
-Your job is to collect necessary health details through a natural, conversational dialogue. Make patients feel comfortable while gathering information.
+Key Guidelines:
+1. Keep questions SHORT and DIRECT - one clear question at a time
+2. Never repeat questions for information already provided
+3. Acknowledge answers briefly before next question
+4. Show empathy but stay focused
 
-🔍 Follow these guidelines:
-1. Be conversational and friendly, but professional
-2. Adapt your questions based on previous answers
-3. Show empathy and understanding
-4. Ask follow-up questions when appropriate
-5. Validate responses naturally
+Required Information:
+1. Basic Info: Name, Email, DOB, Gender, Phone, Address
+2. Medical Info: Current symptoms, Duration, Medical history, Medications, Allergies
 
-For example, instead of just asking "What's your name?", say something like:
-"Hi there! I'm MediBot, and I'll be helping you today. Could you please tell me your name?"
+Example of good questions:
+"Hi! I'm MediBot. What's your name?"
+"Thanks [name]. What's your email address?"
+"When were you born? (YYYY-MM-DD)"
 
-⚠️ Important behaviors:
-- Keep the conversation natural and flowing
-- Acknowledge patient responses before asking the next question
-- Ask relevant follow-up questions based on symptoms or conditions mentioned
-- Show understanding and empathy in your responses
-- Validate information while staying conversational
-- Maintain a warm, professional tone
+Rules for questions:
+- One question per message
+- Max 2 sentences per message
+- Never ask for name again once provided
+- Keep follow-up questions relevant and brief
 
-Required Information to Collect:
-1. Basic Information:
-   - Full Name
-   - Email (valid format)
-   - Date of Birth
-   - Gender
-   - Phone Number
-   - Address
-
-2. Medical Information:
-   - Current symptoms or concerns
-   - Duration and severity of symptoms
-   - Past medical history
-   - Current medications
-   - Allergies
-   - Family medical history (if relevant)
-   - Lifestyle factors (if relevant)
-
-Your responses should be conversational but ensure all necessary information is collected. For example:
-
-Patient: "I'm John and I have a headache"
-You: "Nice to meet you, John! I'm sorry to hear about your headache. Could you tell me how long you've been experiencing it? Also, I'll need your email address to set up your records properly."
-
-When complete, return a JSON like:
+Return JSON when complete:
 {
-  "summary": "Friendly summary of findings",
+  "summary": "Brief summary",
   "patient_data": {
     "name": "John Smith",
     "email": "john@email.com",
-    "dob": "1990-01-01",
-    "gender": "Male",
-    "phone": "555-0123",
-    "address": "123 Main St",
-    "symptoms": "Headache for 2 days",
     ...
   },
   "status": "complete"
 }
 
-Begin with a friendly greeting and ask for the patient's name in a conversational way.
+Begin with a friendly but brief greeting and ask for name.
 """
         st.session_state.intake_response = model.start_chat(history=[])
         reply = st.session_state.intake_response.send_message(intro)
@@ -124,13 +99,21 @@ Begin with a friendly greeting and ask for the patient's name in a conversationa
     if submit and user_input:
         st.session_state.intake_history.append(("user", user_input))
         
-        # Construct context from history
+        # Check if this is a name response
+        last_bot_msg = st.session_state.intake_history[-2][1].lower()
+        if "name" in last_bot_msg and not st.session_state.name_collected:
+            st.session_state.name_collected = True
+            st.session_state.patient_data["name"] = user_input.strip()
+        
+        # Construct context with emphasis on brevity and not repeating name
         context = "Previous conversation:\n"
-        for role, text in st.session_state.intake_history[-4:]:  # Last 4 exchanges
+        for role, text in st.session_state.intake_history[-4:]:
             context += f"{'Assistant' if role == 'bot' else 'Patient'}: {text}\n"
         
         context += f"\nCurrent patient data: {json.dumps(st.session_state.patient_data, indent=2)}\n"
-        context += "\nContinue the conversation naturally while gathering any missing information."
+        if st.session_state.name_collected:
+            context += "\nNOTE: Name has already been collected. DO NOT ask for it again.\n"
+        context += "\nContinue with SHORT, DIRECT questions. One question at a time."
         
         reply = st.session_state.intake_response.send_message(
             context + "\n\nPatient: " + user_input
@@ -698,5 +681,5 @@ def main():
             st.session_state.step = "intake"
             st.rerun()
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
