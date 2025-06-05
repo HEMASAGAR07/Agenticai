@@ -296,36 +296,25 @@ def dynamic_medical_intake():
 
     if st.session_state.intake_response is None:
         intro = """
-You are MediBot, an intelligent medical intake assistant.
+You are MediBot, a medical intake assistant.
 
-FIRST PHASE - Collect only name and email:
-1. Ask for the patient's full name (first and last name)
-2. Ask for their email address
-3. Validate both strictly:
-   - Name: Must be full name (first and last name), letters, spaces, hyphens, and apostrophes only
-   - Email: Must be valid format, no typos in common domains
+FIRST PHASE - Collect name and email:
+1. Ask for full name
+2. Ask for email
+3. Validate both strictly but DO NOT show validation details or JSON
+4. DO NOT confirm or acknowledge after collecting - proceed directly to showing their information
 
-Do not ask for any other personal information (no phone, address, age, gender, etc).
-These will be retrieved from our database.
-
-Return this JSON when both name and email are valid:
-{
-  "patient_data": {
-    "name": "Full Name",
-    "email": "valid@email.com"
-  },
-  "status": "initial_complete"
-}
-
-Begin by asking for the patient's full name.
+Rules:
+- Ask for name first: "Please enter your full name:"
+- Then ask for email: "Please enter your email:"
+- NO confirmations or JSON displays
+- Keep it simple and direct
 """
         st.session_state.intake_response = model.start_chat(history=[])
         reply = st.session_state.intake_response.send_message(intro)
         st.session_state.intake_history.append(("bot", reply.text.strip()))
     else:
         reply = st.session_state.intake_response
-
-    st.write(f" {st.session_state.intake_history[-1][1]}")
 
     # If we have retrieved data but not confirmed it yet, show confirmation UI
     if st.session_state.db_data_retrieved and not st.session_state.data_confirmed:
@@ -337,22 +326,33 @@ Begin by asking for the patient's full name.
         
         with col1:
             st.markdown("**Personal Details:**")
-            st.write(f"📝 Name: {patient_data.get('name', '')}")
+            st.write(f"📝 Name: {patient_data.get('full_name', '')}")
             st.write(f"📧 Email: {patient_data.get('email', '')}")
             st.write(f"📱 Phone: {patient_data.get('phone', '')}")
             
         with col2:
             st.markdown("**Additional Information:**")
-            st.write(f"🎂 Date of Birth: {patient_data.get('dob', '')}")
+            st.write(f"🎂 Date of Birth: {patient_data.get('DOB', '')}")
             st.write(f"⚧ Gender: {patient_data.get('gender', '')}")
             st.write(f"📍 Address: {patient_data.get('address', '')}")
+
+        # Show medical history if available
+        if any(key in patient_data for key in ['previous_symptoms', 'previous_medications', 'previous_allergies', 'previous_surgeries']):
+            st.markdown("### Previous Medical History")
+            if patient_data.get('previous_symptoms'):
+                st.write("🤒 Previous Symptoms:", patient_data['previous_symptoms'])
+            if patient_data.get('previous_medications'):
+                st.write("💊 Previous Medications:", patient_data['previous_medications'])
+            if patient_data.get('previous_allergies'):
+                st.write("⚠️ Known Allergies:", patient_data['previous_allergies'])
+            if patient_data.get('previous_surgeries'):
+                st.write("🏥 Previous Surgeries:", patient_data['previous_surgeries'])
         
         if st.button("✅ Confirm Details"):
             st.session_state.data_confirmed = True
             # Start health-specific questions immediately
             health_prompt = f"""
-You are MediBot, a medical intake assistant. The patient's details have been confirmed:
-{json.dumps(st.session_state.patient_data, indent=2)}
+You are MediBot, a medical intake assistant. The patient's details have been confirmed.
 
 FOCUS ONLY ON HEALTH ASSESSMENT:
 1. Current Symptoms:
@@ -375,18 +375,10 @@ FOCUS ONLY ON HEALTH ASSESSMENT:
 Rules:
 - Start IMMEDIATELY with "What symptoms or health concerns bring you in today?"
 - Ask ONE question at a time
-- Don't ask about basic info (we already have it)
+- Don't show any JSON or technical details
 - Focus on NEW health information only
 - Be direct and medical-focused
-
-Return this JSON when health intake is complete:
-{{
-  "patient_data": {{
-    // Include all previous data plus new health info
-  }},
-  "summary": "Summary of new health information",
-  "status": "complete"
-}}
+- Don't acknowledge or repeat back their information
 """
             st.session_state.intake_response = model.start_chat(history=[])
             reply = st.session_state.intake_response.send_message(health_prompt)
@@ -399,6 +391,10 @@ Return this JSON when health intake is complete:
         
         return {}, "", False
 
+    # Only show the last bot message
+    if st.session_state.intake_history:
+        st.write(f"{st.session_state.intake_history[-1][1]}")
+
     user_input = st.text_input("Your answer:", key="intake_input", 
                               placeholder="Type your response here...")
     submit = st.button("Continue", key="intake_submit")
@@ -409,19 +405,19 @@ Return this JSON when health intake is complete:
             is_valid, result = is_valid_name(user_input)
             if not is_valid:
                 st.error(f"Invalid name: {result}")
-                st.info("Please provide your full name (first and last name). Example: 'John Smith' or 'Mary Jane Wilson'")
                 return {}, "", False
             user_input = result  # Use the standardized name
             st.session_state.current_field = "email"  # Move to email collection
         
-        st.session_state.intake_history.append(("user", user_input))
+        # Don't append user input to history for name/email collection
+        if st.session_state.initial_collection_done:
+            st.session_state.intake_history.append(("user", user_input))
         
         # If we haven't completed initial collection
         if not st.session_state.initial_collection_done:
             reply = st.session_state.intake_response.send_message(user_input)
-            st.session_state.intake_history.append(("bot", reply.text.strip()))
             
-            # Check if we have both name and email
+            # Try to extract JSON without showing it
             final_output = extract_json(reply.text)
             if final_output.get("status") == "initial_complete":
                 st.session_state.initial_collection_done = True
@@ -439,7 +435,9 @@ Return this JSON when health intake is complete:
                     else:
                         st.error("No existing records found. Please contact support to update your information.")
                         return {}, "", False
-                
+            else:
+                # Only append bot reply if we're still collecting initial info
+                st.session_state.intake_history.append(("bot", reply.text.strip()))
                 st.rerun()
         else:
             # Continue with health-specific questions
