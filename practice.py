@@ -83,6 +83,13 @@ def extract_json(text):
     return {}
 
 
+# Define validation rules
+validation_rules = {
+    "email": lambda x: "@" in x and "." in x,  # Basic email validation
+    "dob": lambda x: len(x.split("-")) == 3,  # Check format YYYY-MM-DD
+    "phone": lambda x: x.isdigit() and len(x) >= 10,  # Check if phone is numeric and has at least 10 digits
+}
+
 def dynamic_medical_intake():
     # Using session state to store conversation & patient_data across reruns
     if "intake_history" not in st.session_state:
@@ -169,14 +176,16 @@ Begin with a friendly greeting and ask for the patient's full name.
         
         if missing_essentials:
             # Ask only essential questions
-            prompt = f"Please provide: {', '.join(missing_essentials)}."
+            prompt = f"Please provide: {', '.join(missing_essentials)}. Ensure the information is correct."
             reply = st.session_state.intake_response.send_message(prompt)
             st.session_state.intake_history.append(("bot", reply.text.strip()))
         else:
-            # Continue with follow-up questions only if essential information is complete
-            reply = st.session_state.intake_response.send_message(
-                context + "\n\nPatient: " + user_input
-            )
+            # Validate responses using LLM
+            validation_prompt = "Please verify the following information for correctness:"
+            for field, value in st.session_state.patient_data.items():
+                validation_prompt += f"\n- {field}: {value}"
+            validation_prompt += "\nIf any information is incorrect, please provide the correct details."
+            reply = st.session_state.intake_response.send_message(validation_prompt)
             st.session_state.intake_history.append(("bot", reply.text.strip()))
 
         # Check if final JSON with status complete
@@ -227,19 +236,17 @@ You are a medical assistant reviewing the following patient data:
 {json.dumps(patient_data, indent=2)}
 
 🎯 TASK:
-- Carefully analyze the above patient data.
-- Identify if any critical required medical details are missing, inconsistent, or unclear.
-- Do NOT ask unnecessary or overly detailed questions.
-- Ask only essential follow-up questions one at a time to complete missing key information.
-- If the data is sufficient and complete for medical intake purposes, return a JSON with status: "finalized".
-- After collecting all required info, return JSON like:
+- Analyze the data for missing or unclear details.
+- Ask only essential follow-up questions.
+- If data is complete, return a JSON with status: "finalized".
+- Return JSON like:
 {{
   "updated_patient_data": {{ ... }},
-  "notes": "Summary of what was added or clarified",
+  "notes": "Summary of additions",
   "status": "finalized"
 }}
 
-Begin your focused analysis now.
+Begin your analysis now.
 """
         st.session_state.followup_response = model.start_chat(history=[])
         reply = st.session_state.followup_response.send_message(prompt)
@@ -275,20 +282,19 @@ def recommend_specialist(patient_data):
     prompt = f"""
 You are a medical triage assistant.
 
-Based on the following patient data, recommend the most appropriate medical specialist(s) for consultation.
+Based on the patient data, recommend the most appropriate specialist(s).
 
 Patient data:
 {json.dumps(patient_data, indent=2)}
 
 Instructions:
-- Analyze symptoms, medical history, medications, allergies, and other relevant information.
-- Recommend 1 or more specialist types (e.g., Cardiologist, Neurologist, Dermatologist, Orthopedic Surgeon, etc.)
-- Provide a brief rationale for the recommendation.
-- Return ONLY a JSON object with this format:
-
+- Analyze symptoms and history.
+- Recommend specialist types (e.g., Cardiologist, Neurologist).
+- Provide a rationale.
+- Return JSON:
 {{
-  "recommended_specialist": ["Specialist Name 1", "Specialist Name 2"],
-  "rationale": "Short explanation why these specialists are recommended.",
+  "recommended_specialist": ["Specialist Name 1"],
+  "rationale": "Reason for recommendation.",
   "status": "done"
 }}
 """
