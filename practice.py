@@ -307,17 +307,73 @@ def dynamic_medical_intake():
 
         if submit and user_input:
             st.session_state.intake_history.append(("user", user_input))
-            reply = st.session_state.intake_response.send_message(user_input)
-            st.session_state.intake_history.append(("bot", reply.text.strip()))
             
-            # Check if health intake is complete
-            final_output = extract_json(reply.text)
-            if final_output.get("status") == "complete":
-                if st.session_state.db_data_retrieved:
-                    final_output["patient_data"].update(st.session_state.patient_data)
-                st.success("✅ Medical intake completed successfully!")
-                return final_output.get("patient_data", {}), final_output.get("summary", ""), True
-            st.rerun()
+            # Send to symptom analysis
+            analysis_prompt = f"""
+You are a medical symptom analysis system. Analyze the following patient information and symptoms:
+
+Patient Information:
+{json.dumps(st.session_state.patient_data, indent=2)}
+
+Current Symptoms/Concerns:
+{user_input}
+
+Provide a structured analysis in JSON format:
+{{
+    "symptoms_identified": [list of identified symptoms],
+    "severity_assessment": "assessment of severity",
+    "duration_analysis": "analysis of duration if mentioned",
+    "recommended_specialists": [list of relevant medical specialists],
+    "rationale": "explanation for specialist recommendations",
+    "status": "complete"
+}}
+
+Focus on medical analysis only. Do not include conversational elements or goodbyes.
+"""
+            reply = st.session_state.intake_response.send_message(analysis_prompt)
+            
+            try:
+                analysis_result = extract_json(reply.text)
+                if analysis_result and analysis_result.get("status") == "complete":
+                    # Prepare final output with analysis
+                    final_output = {
+                        "patient_data": st.session_state.patient_data,
+                        "symptom_analysis": analysis_result,
+                        "status": "complete"
+                    }
+                    
+                    # Save for mapping
+                    st.session_state.final_patient_json = final_output
+                    
+                    # Display analysis results
+                    st.success("✅ Symptom Analysis Complete")
+                    
+                    # Map to database schema
+                    try:
+                        mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_output)
+                        with open("mapped_output.json", "w") as f:
+                            json.dump(mapped_result, f, indent=2)
+                        st.session_state.mapped_patient_data = mapped_result
+                        st.session_state.step = "db_insert"
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Mapping failed: {str(e)}")
+                    
+                    return final_output["patient_data"], "", True
+                else:
+                    # If analysis is not complete, ask a follow-up question about symptoms
+                    followup_prompt = """
+Based on the patient's response, ask ONE specific follow-up question about their symptoms.
+Focus on: severity, duration, frequency, or related symptoms.
+Keep the question clear and direct.
+"""
+                    followup = st.session_state.intake_response.send_message(followup_prompt)
+                    st.session_state.intake_history.append(("bot", followup.text.strip()))
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error in symptom analysis: {str(e)}")
+                return {}, "", False
+                
         return {}, "", False
 
     # Initial collection logic
