@@ -123,7 +123,6 @@ Required Information to Collect:
    - Date of Birth
    - Gender
    - Phone Number
-   - Address
 
 2. Medical Information:
    - Current symptoms or concerns
@@ -148,7 +147,6 @@ When complete, return a JSON like:
     "dob": "1990-01-01",
     "gender": "Male",
     "phone": "555-0123",
-    "address": "123 Main St",
     "symptoms": "Headache for 2 days",
     ...
   },
@@ -181,7 +179,7 @@ Begin with a friendly greeting and ask for the patient's full name in a conversa
         context += "\nContinue the conversation naturally while gathering any missing information."
         
         # Prioritize essential questions
-        essential_questions = ["name", "email", "dob", "gender", "phone", "address"]
+        essential_questions = ["name", "email", "dob", "gender", "phone"]
         missing_essentials = [q for q in essential_questions if not st.session_state.patient_data.get(q)]
         
         if missing_essentials:
@@ -213,7 +211,7 @@ Previous conversation:
             patient_data = final_output.get("patient_data", {})
             
             # Validate required fields before allowing completion
-            required_fields = ["name", "email", "dob", "gender", "phone", "address"]
+            required_fields = ["name", "email", "dob", "gender", "phone"]
             missing_fields = [field for field in required_fields if not patient_data.get(field)]
             
             if missing_fields:
@@ -344,7 +342,7 @@ Given the patient data JSON below, check if ALL mandatory fields are present.
 
 Mandatory fields:
 
-- From Patient: "name", "email", "age", "gender", "Ph Number" (phone), "Address" (address)
+- From Patient: "name", "email", "age", "gender", "Ph Number" (phone)
 - If "symptoms" == "yes": "symptom_list" required (comma-separated string)
 - If "allergies" == "yes": "allergy_list" required
 - If "medications" == "yes": "medication_list" required
@@ -408,12 +406,6 @@ Begin your check and ask for missing info as needed, starting with email if it's
             d["gender"] = u_input
         elif "phone" in last_bot_msg or "ph number" in last_bot_msg:
             d["phone"] = u_input
-        elif "address" in last_bot_msg:
-            d["address"] = u_input
-            # Move from notes to address if it was stored in notes
-            if "notes" in d and d["notes"] and not d.get("address"):
-                d["address"] = d["notes"]
-                d["notes"] = ""
         elif "symptom" in last_bot_msg:
             d["symptom_list"] = u_input
             d["symptoms"] = "yes"
@@ -484,7 +476,7 @@ def migrate_existing_data(data):
             patient_data["email"] = ""
             
         # Ensure other required fields exist
-        required_fields = ["name", "email", "dob", "gender", "phone", "address"]
+        required_fields = ["name", "email", "dob", "gender", "phone"]
         for field in required_fields:
             if field not in patient_data:
                 patient_data[field] = ""
