@@ -27,7 +27,8 @@ st.markdown(
     """
     <style>
     .reportview-container {
-        background: #f0f2f6;
+        background: linear-gradient(to right, #f0f2f6, #e0e4e8);
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
     .sidebar .sidebar-content {
         background: #e0e4e8;
@@ -35,9 +36,18 @@ st.markdown(
     .stButton>button {
         background-color: #4CAF50;
         color: white;
+        border-radius: 8px;
+        transition: background-color 0.3s ease;
+    }
+    .stButton>button:hover {
+        background-color: #45a049;
     }
     .stTextInput>div>div>input {
         border: 1px solid #4CAF50;
+        border-radius: 4px;
+    }
+    .stProgress>div>div>div {
+        background-color: #4CAF50;
     }
     </style>
     """,
@@ -59,6 +69,11 @@ st.session_state.intake_progress = min(st.session_state.intake_progress + 10, 10
 
 # Update progress bar
 progress.progress(st.session_state.intake_progress)
+
+# Add a sidebar for navigation
+st.sidebar.title("Navigation")
+steps = ["Patient Intake", "Follow-up Questions", "Specialist Recommendation", "Confirm Mandatory Fields", "Map Collected Info", "Insert Data into Database", "Book Appointment"]
+current_step = st.sidebar.radio("Go to:", steps)
 
 # Load environment variables
 load_dotenv()
