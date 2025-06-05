@@ -50,11 +50,14 @@ st.title("MediBot - Your Medical Intake Assistant 🩺")
 # Add a progress bar to indicate the intake process
 progress = st.progress(0)
 
-# Update progress bar based on session state
+# Initialize progress value within the valid range
 if "intake_progress" not in st.session_state:
     st.session_state.intake_progress = 0
 
-st.session_state.intake_progress += 10  # Increment progress
+# Safely increment progress value
+st.session_state.intake_progress = min(st.session_state.intake_progress + 10, 100)
+
+# Update progress bar
 progress.progress(st.session_state.intake_progress)
 
 # Load environment variables
