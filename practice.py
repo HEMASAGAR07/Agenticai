@@ -7,8 +7,9 @@ import mapping_collectedinfo_to_schema  # <-- Add this import at the top
 import mysql.connector
 import subprocess
 import pymysql
-from inserting_JSON_to_DB import db_config,insert_data_from_mapped_json
+from inserting_JSON_to_DB import db_config,insert_data_from_mapped_json, save_operation_state, handle_table_operation, get_last_update_timestamp
 from booking import book_appointment_from_json
+import uuid
 
 # Custom styling
 st.set_page_config(
@@ -110,6 +111,62 @@ def extract_json(text):
     return {}
 
 
+def get_user_from_db(email):
+    """Retrieve user data from database using email"""
+    # Check cache first
+    cache_key = f"user_data_{email}"
+    if "db_cache" not in st.session_state:
+        st.session_state.db_cache = {}
+    
+    if cache_key in st.session_state.db_cache:
+        return st.session_state.db_cache[cache_key]
+        
+    try:
+        conn = pymysql.connect(**db_config)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # Query to get user details from patients table
+        cursor.execute("""
+            SELECT p.*, 
+                   GROUP_CONCAT(DISTINCT s.symptom_name) as previous_symptoms,
+                   GROUP_CONCAT(DISTINCT m.medication_name) as previous_medications,
+                   GROUP_CONCAT(DISTINCT a.allergy_name) as previous_allergies
+            FROM patients p
+            LEFT JOIN symptoms s ON p.patient_id = s.patient_id
+            LEFT JOIN medications m ON p.patient_id = m.patient_id
+            LEFT JOIN allergies a ON p.patient_id = a.patient_id
+            WHERE p.email = %s
+            GROUP BY p.patient_id
+        """, (email,))
+        
+        user_data = cursor.fetchone()
+        if user_data:
+            # Convert to regular dict and clean up None values
+            user_data = dict(user_data)
+            for key in user_data:
+                if user_data[key] is None:
+                    user_data[key] = ""
+            
+            # Cache the result
+            st.session_state.db_cache[cache_key] = user_data
+        
+        return user_data
+    except Exception as e:
+        st.error(f"Database error: {str(e)}")
+        return None
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
+def invalidate_user_cache(email):
+    """Invalidate cached data for a user"""
+    if "db_cache" in st.session_state:
+        cache_key = f"user_data_{email}"
+        if cache_key in st.session_state.db_cache:
+            del st.session_state.db_cache[cache_key]
+
 def dynamic_medical_intake():
     # Using session state to store conversation & patient_data across reruns
     if "intake_history" not in st.session_state:
@@ -118,91 +175,33 @@ def dynamic_medical_intake():
         st.session_state.intake_response = None
     if "patient_data" not in st.session_state:
         st.session_state.patient_data = {}
-    if "name_collected" not in st.session_state:
-        st.session_state.name_collected = False
+    if "initial_collection_done" not in st.session_state:
+        st.session_state.initial_collection_done = False
+    if "db_data_retrieved" not in st.session_state:
+        st.session_state.db_data_retrieved = False
 
     if st.session_state.intake_response is None:
         intro = """
-You are MediBot, an intelligent medical intake assistant with strong validation capabilities.
+You are MediBot, an intelligent medical intake assistant.
 
-Your job is to collect all necessary health details step-by-step, one question at a time, while strictly validating each response.
+FIRST PHASE - Collect only name and email:
+1. Ask for the patient's full name (first and last name)
+2. Ask for their email address
+3. Validate both strictly:
+   - Name: Must be full name, no numbers/special chars
+   - Email: Must be valid format, no typos in common domains
 
-🔍 Validation Rules:
-1. Name Validation:
-   - Must contain at least 2 words (first and last name)
-   - No numbers or special characters allowed
-   - Each word must be at least 2 characters long
-   - Must not be gibberish (e.g., "asdf asdf", "test test")
-
-2. Email Validation:
-   - Must follow valid email format (user@domain.com)
-   - Common typos in domain names should be caught (e.g., "gmial.com", "yaho.com")
-   - Must not be temporary/disposable email patterns
-
-3. Phone Number Validation:
-   - Must be a valid phone number format (e.g., 10 digits for US numbers)
-   - Must not be sequential numbers (e.g., "1234567890")
-   - Must not be repeated digits (e.g., "1111111111")
-
-4. Age/Date Validation:
-   - Must be a reasonable age (0-120)
-   - Dates must be in YYYY-MM-DD format
-   - Future dates are not allowed for birth dates
-   - Surgery dates must be in the past
-
-5. Medical Information Validation:
-   - Symptoms must be specific and clear (not vague terms like "not feeling well")
-   - Medications must include dosage when provided
-   - Allergies must be specific substances/medications
-   - Medical conditions must be recognized terms
-
-For EACH user response:
-1. First validate the format based on the field type
-2. Check for common mistakes or invalid patterns
-3. If invalid:
-   - Explain specifically why the input is invalid
-   - Provide an example of correct format
-   - Ask for the information again
-4. If valid but unclear:
-   - Ask follow-up questions for clarification
-   - Request more specific details if needed
-
-Context Rules:
-- Track previous answers to ensure consistency
-- Flag contradictions in medical history
-- Ensure related medical information aligns
-- Maintain conversation context between questions
-
-Never proceed to the next question until the current answer is fully validated and clear.
-
-📝 Your final output should ONLY be a JSON object like:
+Do not ask any other questions until these are validated.
+Return this JSON when both are valid:
 {
-  "summary": "Short summary of findings",
   "patient_data": {
-    "name": "John Smith",
-    "email": "john@email.com",
-    "age": 34,
-    "gender": "Male",
-    "phone": "1234567890",
-    "address": "123 Main St, City, State, ZIP",
-    "symptoms": "yes",
-    "symptom_list": "Specific symptoms...",
-    "medications": "yes",
-    "medication_list": "Med1 10mg, Med2 20mg...",
-    "allergies": "yes",
-    "allergy_list": "Specific allergies...",
-    "past_history": "yes",
-    "past_illness": "Specific conditions..."
+    "name": "Full Name",
+    "email": "valid@email.com"
   },
-  "validation_status": {
-    "all_fields_valid": true,
-    "last_validated_field": "field_name",
-    "validation_message": "All inputs validated successfully"
-  },
-  "status": "complete"
+  "status": "initial_complete"
 }
 
-Begin with a friendly greeting and ask for the patient's full name.
+Begin by asking for the patient's full name.
 """
         st.session_state.intake_response = model.start_chat(history=[])
         reply = st.session_state.intake_response.send_message(intro)
@@ -219,60 +218,102 @@ Begin with a friendly greeting and ask for the patient's full name.
     if submit and user_input:
         st.session_state.intake_history.append(("user", user_input))
         
-        # Check if this is a name response
-        last_bot_msg = st.session_state.intake_history[-2][1].lower()
-        if "name" in last_bot_msg and not st.session_state.name_collected:
-            st.session_state.name_collected = True
-            st.session_state.patient_data["name"] = user_input.strip()
-        
-        # Construct context with emphasis on brevity and not repeating name
-        context = "Previous conversation:\n"
-        for role, text in st.session_state.intake_history[-4:]:
-            context += f"{'Assistant' if role == 'bot' else 'Patient'}: {text}\n"
-        
-        context += f"\nCurrent patient data: {json.dumps(st.session_state.patient_data, indent=2)}\n"
-        if st.session_state.name_collected:
-            context += "\nNOTE: Name has already been collected. DO NOT ask for it again.\n"
-        context += "\nContinue with SHORT, DIRECT questions. One question at a time."
-        
-        reply = st.session_state.intake_response.send_message(
-            context + "\n\nPatient: " + user_input
-        )
-        st.session_state.intake_history.append(("bot", reply.text.strip()))
-
-        # Check if final JSON with status complete
-        final_output = extract_json(reply.text)
-        if final_output.get("status") == "complete":
-            patient_data = final_output.get("patient_data", {})
+        # If we haven't completed initial collection
+        if not st.session_state.initial_collection_done:
+            reply = st.session_state.intake_response.send_message(user_input)
+            st.session_state.intake_history.append(("bot", reply.text.strip()))
             
-            # Validate required fields before allowing completion
-            required_fields = ["name", "email", "dob", "gender", "phone", "address"]
-            missing_fields = [field for field in required_fields if not patient_data.get(field)]
-            
-            if missing_fields:
-                # If any required field is missing, continue the intake
-                prompt = f"""
-Some required information is still missing. Please collect the following in a natural, conversational way:
-{', '.join(missing_fields)}
+            # Check if we have both name and email
+            final_output = extract_json(reply.text)
+            if final_output.get("status") == "initial_complete":
+                st.session_state.initial_collection_done = True
+                st.session_state.patient_data = final_output.get("patient_data", {})
+                
+                # Try to retrieve user data from DB
+                email = st.session_state.patient_data.get("email")
+                if email:
+                    db_user_data = get_user_from_db(email)
+                    if db_user_data:
+                        # Merge DB data with collected data
+                        st.session_state.patient_data.update(db_user_data)
+                        st.session_state.db_data_retrieved = True
+                        
+                        # Start health-specific questions
+                        health_prompt = f"""
+Now focus ONLY on health-specific questions. The patient's general information has been retrieved:
+{json.dumps(st.session_state.patient_data, indent=2)}
 
-Remember to:
-1. Stay conversational and friendly
-2. Acknowledge previous responses
-3. Ask for missing information naturally
-4. Validate the information received
+Ask focused medical questions about:
+1. Current symptoms and their duration
+2. Any new medications since last visit
+3. Any new allergies
+4. Recent medical events or concerns
 
-Previous conversation:
-{context}
+Rules:
+- Don't ask about information we already have
+- Focus on changes since their last record
+- Ask one question at a time
+- Validate medical terms and descriptions
+- If they mention new conditions, ask for details
+
+Return this JSON when health intake is complete:
+{{
+  "patient_data": {{
+    // Include all previous data plus new health info
+  }},
+  "summary": "Summary of new health information",
+  "status": "complete"
+}}
+
+Begin with asking about their current symptoms or health concerns.
 """
-                st.session_state.intake_response.send_message(prompt)
+                        st.session_state.intake_response = model.start_chat(history=[])
+                        reply = st.session_state.intake_response.send_message(health_prompt)
+                        st.session_state.intake_history.append(("bot", reply.text.strip()))
+                    else:
+                        # If no DB data, proceed with new patient questions
+                        new_patient_prompt = f"""
+New patient detected. Focus on collecting essential health information:
+1. Current symptoms and their duration
+2. Existing medical conditions
+3. Current medications
+4. Known allergies
+5. Recent medical events
+
+Rules:
+- Ask one question at a time
+- Validate medical terms and descriptions
+- Get specific details for each response
+- Ensure information is clear and complete
+
+Return this JSON when health intake is complete:
+{{
+  "patient_data": {{
+    // Include all collected data
+  }},
+  "summary": "Summary of health information",
+  "status": "complete"
+}}
+
+Begin with asking about their current symptoms or health concerns.
+"""
+                        st.session_state.intake_response = model.start_chat(history=[])
+                        reply = st.session_state.intake_response.send_message(new_patient_prompt)
+                        st.session_state.intake_history.append(("bot", reply.text.strip()))
                 st.rerun()
-            else:
-                st.session_state.patient_data = patient_data
-                summary = final_output.get("summary", "")
-                st.success("✅ Initial intake complete. Thank you for your patience!")
-                return patient_data, summary, True
         else:
-            # Continue intake
+            # Continue with health-specific questions
+            reply = st.session_state.intake_response.send_message(user_input)
+            st.session_state.intake_history.append(("bot", reply.text.strip()))
+            
+            # Check if health intake is complete
+            final_output = extract_json(reply.text)
+            if final_output.get("status") == "complete":
+                # Merge any existing data with new health data
+                if st.session_state.db_data_retrieved:
+                    final_output["patient_data"].update(st.session_state.patient_data)
+                st.success("✅ Medical intake completed successfully!")
+                return final_output.get("patient_data", {}), final_output.get("summary", ""), True
             st.rerun()
 
     return {}, "", False
@@ -542,6 +583,80 @@ def migrate_existing_data(data):
     return data
 
 
+def check_patient_exists(cursor, email):
+    # Checks if patient exists using email
+    # Returns patient_id if found, None if not
+    cursor.execute("SELECT patient_id FROM patients WHERE email = %s", (email,))
+    result = cursor.fetchone()
+    return result[0] if result else None
+
+
+def update_single_record(cursor, table, columns, where_clause):
+    # Updates existing record instead of inserting new one
+    # Returns number of rows affected
+    query = f"UPDATE {table} SET "
+    for column, value in columns.items():
+        query += f"{column} = %s, "
+    query = query.rstrip(", ") + " WHERE " + " AND ".join([f"{column} = %s" for column in where_clause])
+    cursor.execute(query, tuple(columns.values()) + tuple(where_clause.values()))
+    return cursor.rowcount
+
+
+def update_multiple_records(cursor, table, records, patient_id, record_type):
+    # Updates related records (symptoms, medications, etc.)
+    # First deletes existing records for the patient
+    # Then inserts new records
+    cursor.execute(f"DELETE FROM {table} WHERE patient_id = %s", (patient_id,))
+    for record in records:
+        cursor.execute(f"INSERT INTO {table} (patient_id, {record_type}) VALUES (%s, %s)", (patient_id, record))
+    return cursor.rowcount
+
+
+def verify_medical_terms(terms, term_type):
+    # Implementation of verify_medical_terms function
+    # This function should be implemented based on your specific requirements
+    # For now, we'll just print the terms
+    st.write(f"Verifying medical terms of type: {term_type}")
+    for term in terms:
+        st.write(f"- {term}")
+
+
+def recover_failed_operation(operation_id):
+    """Recover from a failed database operation"""
+    try:
+        # Load the operation state
+        state = load_operation_state(operation_id)
+        if not state:
+            return False, "Operation state not found"
+        
+        # Connect to database
+        conn = pymysql.connect(**db_config)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # If we have a patient_id and last update timestamp
+        if state.get("patient_id") and state.get("last_update"):
+            # Check if data has been modified since our last update
+            current_update = get_last_update_timestamp(cursor, state["patient_id"])
+            if current_update != state["last_update"]:
+                return False, "Data has been modified since last operation"
+            
+            # Restore original data
+            if state.get("original_data"):
+                handle_table_operation(cursor, "patients", state["original_data"], 
+                                    {"patient_id": state["patient_id"]})
+                conn.commit()
+                return True, "Successfully recovered to original state"
+        
+        return False, "Insufficient data for recovery"
+    except Exception as e:
+        return False, f"Recovery failed: {str(e)}"
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
+
 def main():
     # Header with logo and title
     col1, col2 = st.columns([1, 4])
@@ -782,7 +897,33 @@ def main():
                         
                         # Proceed with insertion
                         st.info("Starting data insertion...")
-                        result = insert_data_from_mapped_json(mapped_file)
+                        email = mapped_result["patient_data"]["email"]
+                        patient_id = check_patient_exists(cursor, email)
+                        last_update = get_last_update_timestamp(cursor, patient_id)
+
+                        if patient_id:
+                            # Save current state
+                            operation_id = str(uuid.uuid4())
+                            save_operation_state(operation_id, {
+                                "patient_id": patient_id,
+                                "last_update": last_update,
+                                "original_data": mapped_result["patient_data"]
+                            })
+                            # Perform update
+                            handle_table_operation(cursor, "patients", mapped_result["patient_data"], {"patient_id": patient_id})
+                        else:
+                            # Create new patient record
+                            insert_single_record(cursor, "patients", mapped_result["patient_data"])
+                            patient_id = cursor.lastrowid
+
+                        # 2. For other tables (symptoms, medications, etc.):
+                        for table in ["symptoms", "medications", "allergies"]:
+                            # Delete existing records for this patient
+                            update_multiple_records(cursor, table, mapped_result["patient_data"][f"{table}_list"], patient_id, table)
+                            
+                            # Verify medical terms
+                            if table in ["medications", "symptoms", "allergies"]:
+                                verify_medical_terms(mapped_result["patient_data"][f"{table}_list"], table)
                         
                         if result.get("status") == "success":
                             st.success("✅ Data successfully inserted into the database!")
@@ -802,6 +943,16 @@ def main():
                             st.error("❌ Data insertion failed")
                             st.session_state.db_insert_success = False
                             
+                            # If operation fails
+                            save_operation_state(operation_id, {
+                                "error": str(e),
+                                "patient_id": patient_id,
+                                "last_successful_operation": last_op
+                            })
+
+                            # Can recover later using
+                            recover_failed_operation(operation_id)
+
                     except Exception as e:
                         st.error(f"❌ Error during database operation: {str(e)}")
                         import traceback
