@@ -847,5 +847,5 @@ def main():
             st.session_state.step = "intake"
             st.rerun()
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
