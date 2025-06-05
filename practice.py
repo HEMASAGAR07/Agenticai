@@ -167,6 +167,38 @@ def invalidate_user_cache(email):
         if cache_key in st.session_state.db_cache:
             del st.session_state.db_cache[cache_key]
 
+def is_valid_name(name):
+    """Validate a name with reasonable rules"""
+    if not name:
+        return False, "Name cannot be empty"
+    
+    # Remove extra spaces and standardize
+    name = " ".join(name.split())
+    
+    # Basic validation rules
+    if len(name) < 2:
+        return False, "Name is too short"
+    
+    # Allow letters, spaces, hyphens, and apostrophes for names like O'Connor or Jean-Pierre
+    if not all(c.isalpha() or c in " -'" for c in name):
+        return False, "Name can only contain letters, spaces, hyphens, and apostrophes"
+    
+    # Check for at least one space (indicating first and last name)
+    if " " not in name:
+        return False, "Please provide both first and last name"
+    
+    # Check each part of the name
+    parts = name.split()
+    if any(len(part) < 2 for part in parts):
+        return False, "Each part of the name must be at least 2 characters"
+    
+    # Check for obviously fake names
+    fake_names = {"test test", "asdf asdf", "john doe", "jane doe"}
+    if name.lower() in fake_names:
+        return False, "Please provide your real name"
+    
+    return True, name
+
 def dynamic_medical_intake():
     # Using session state to store conversation & patient_data across reruns
     if "intake_history" not in st.session_state:
@@ -179,6 +211,8 @@ def dynamic_medical_intake():
         st.session_state.initial_collection_done = False
     if "db_data_retrieved" not in st.session_state:
         st.session_state.db_data_retrieved = False
+    if "current_field" not in st.session_state:
+        st.session_state.current_field = "name"
 
     if st.session_state.intake_response is None:
         intro = """
@@ -188,10 +222,13 @@ FIRST PHASE - Collect only name and email:
 1. Ask for the patient's full name (first and last name)
 2. Ask for their email address
 3. Validate both strictly:
-   - Name: Must be full name, no numbers/special chars
+   - Name: Must be full name (first and last name), letters, spaces, hyphens, and apostrophes only
    - Email: Must be valid format, no typos in common domains
 
 Do not ask any other questions until these are validated.
+If a name is invalid, explain exactly why and show the correct format.
+Example valid names: "John Smith", "Mary Jane Wilson", "Jean-Pierre Dubois", "O'Connor James"
+
 Return this JSON when both are valid:
 {
   "patient_data": {
@@ -216,6 +253,16 @@ Begin by asking for the patient's full name.
     submit = st.button("Continue", key="intake_submit")
 
     if submit and user_input:
+        # If we're collecting name, validate it first
+        if st.session_state.current_field == "name":
+            is_valid, result = is_valid_name(user_input)
+            if not is_valid:
+                st.error(f"Invalid name: {result}")
+                st.info("Please provide your full name (first and last name). Example: 'John Smith' or 'Mary Jane Wilson'")
+                return {}, "", False
+            user_input = result  # Use the standardized name
+            st.session_state.current_field = "email"  # Move to email collection
+        
         st.session_state.intake_history.append(("user", user_input))
         
         # If we haven't completed initial collection
