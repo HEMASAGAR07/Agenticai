@@ -9,83 +9,8 @@ import subprocess
 import pymysql
 from inserting_JSON_to_DB import db_config,insert_data_from_mapped_json
 from booking import book_appointment_from_json
-import streamlit.components.v1 as components
 
-# Enhance the UI with a custom theme and layout
-st.set_page_config(
-    page_title="MediBot - Medical Intake Assistant",
-    page_icon="🩺",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
 
-# Import Google Fonts and FontAwesome for icons
-st.markdown(
-    """
-    <link href='https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap' rel='stylesheet'>
-    <link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'>
-    <style>
-    body {
-        font-family: 'Roboto', sans-serif;
-    }
-    .stButton>button {
-        font-family: 'Roboto', sans-serif;
-    }
-    .dark-mode .reportview-container {
-        background: #2e2e2e;
-        color: #f0f0f0;
-    }
-    .dark-mode .sidebar .sidebar-content {
-        background: #3e3e3e;
-    }
-    .dark-mode .stButton>button {
-        background-color: #555;
-        color: #f0f0f0;
-    }
-    .dark-mode .stTextInput>div>div>input {
-        border: 1px solid #555;
-        background-color: #3e3e3e;
-        color: #f0f0f0;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-# Add a dark mode toggle
-if 'dark_mode' not in st.session_state:
-    st.session_state.dark_mode = False
-
-dark_mode_toggle = st.sidebar.checkbox('🌙 Dark Mode', key='dark_mode')
-
-if dark_mode_toggle:
-    st.markdown('<style>body{background-color: #2e2e2e; color: #f0f0f0;}</style>', unsafe_allow_html=True)
-else:
-    st.markdown('<style>body{background-color: #ffffff; color: #000000;}</style>', unsafe_allow_html=True)
-
-# Add icons to the sidebar
-st.sidebar.markdown('## <i class="fas fa-user"></i> Navigation', unsafe_allow_html=True)
-
-# Add a header with an icon
-st.title("MediBot - Your Medical Intake Assistant 🩺")
-
-# Add a progress bar to indicate the intake process
-progress = st.progress(0)
-
-# Initialize progress value within the valid range
-if "intake_progress" not in st.session_state:
-    st.session_state.intake_progress = 0
-
-# Safely increment progress value
-st.session_state.intake_progress = min(st.session_state.intake_progress + 10, 100)
-
-# Update progress bar
-progress.progress(st.session_state.intake_progress)
-
-# Add a sidebar for navigation
-st.sidebar.title("Navigation")
-steps = ["Patient Intake", "Follow-up Questions", "Specialist Recommendation", "Confirm Mandatory Fields", "Map Collected Info", "Insert Data into Database", "Book Appointment"]
-current_step = st.sidebar.radio("Go to:", steps)
 
 # Load environment variables
 load_dotenv()
@@ -110,13 +35,6 @@ def extract_json(text):
     return {}
 
 
-# Define validation rules
-validation_rules = {
-    "email": lambda x: "@" in x and "." in x,  # Basic email validation
-    "dob": lambda x: len(x.split("-")) == 3,  # Check format YYYY-MM-DD
-    "phone": lambda x: x.isdigit() and len(x) >= 10,  # Check if phone is numeric and has at least 10 digits
-}
-
 def dynamic_medical_intake():
     # Using session state to store conversation & patient_data across reruns
     if "intake_history" not in st.session_state:
@@ -128,43 +46,68 @@ def dynamic_medical_intake():
 
     if st.session_state.intake_response is None:
         intro = """
-You are an intelligent medical intake assistant.
+You are an intelligent and empathetic medical intake assistant named MediBot.
 
-Your job is to collect necessary health details step-by-step, ensuring each answer is valid.
+Your job is to collect necessary health details through a natural, conversational dialogue. Make patients feel comfortable while gathering information.
 
-🔍 Guidelines:
-- Ask clear, concise questions, one at a time.
-- Accept valid answers and proceed to the next question.
-- Avoid fake or placeholder data.
-- Skip irrelevant questions.
-- Stop when enough information is collected.
-- Validate each response for correctness.
+🔍 Follow these guidelines:
+1. Be conversational and friendly, but professional
+2. Adapt your questions based on previous answers
+3. Show empathy and understanding
+4. Ask follow-up questions when appropriate
+5. Validate responses naturally
 
-⚠️ Critical Areas:
-- Patient's name
-- Current symptoms
-- Past medical history
-- Current medications
-- Family medical history
-- Lifestyle factors
+For example, instead of just asking "What's your name?", say something like:
+"Hi there! I'm MediBot, and I'll be helping you today. Could you please tell me your name?"
 
-📝 Final output should be a JSON object:
+⚠️ Important behaviors:
+- Keep the conversation natural and flowing
+- Acknowledge patient responses before asking the next question
+- Ask relevant follow-up questions based on symptoms or conditions mentioned
+- Show understanding and empathy in your responses
+- Validate information while staying conversational
+- Maintain a warm, professional tone
+
+Required Information to Collect:
+1. Basic Information:
+   - Full Name
+   - Email (valid format)
+   - Date of Birth
+   - Gender
+   - Phone Number
+   - Address
+
+2. Medical Information:
+   - Current symptoms or concerns
+   - Duration and severity of symptoms
+   - Past medical history
+   - Current medications
+   - Allergies
+   - Family medical history (if relevant)
+   - Lifestyle factors (if relevant)
+
+Your responses should be conversational but ensure all necessary information is collected. For example:
+
+Patient: "I'm John and I have a headache"
+You: "Nice to meet you, John! I'm sorry to hear about your headache. Could you tell me how long you've been experiencing it? Also, I'll need your email address to set up your records properly."
+
+When complete, return a JSON like:
 {
-  "summary": "Short summary",
+  "summary": "Friendly summary of findings",
   "patient_data": {
-    "name": "Alice",
-    "age": 34,
-    "gender": "Female",
-    "symptoms": "...",
-    "past_surgeries": "...",
-    "current_medications": "...",
-    "allergies": "...",
+    "name": "John Smith",
+    "email": "john@email.com",
+    "dob": "1990-01-01",
+    "gender": "Male",
+    "phone": "555-0123",
+    "address": "123 Main St",
+    "symptoms": "Headache for 2 days",
     ...
   },
   "status": "complete"
 }
 
-Begin by asking the first question. Keep questions short, acknowledge valid answers, and avoid repetition.
+Begin with a friendly greeting and ask for the patient's name in a conversational way.
 """
         st.session_state.intake_response = model.start_chat(history=[])
         reply = st.session_state.intake_response.send_message(intro)
@@ -181,10 +124,6 @@ Begin by asking the first question. Keep questions short, acknowledge valid answ
     if submit and user_input:
         st.session_state.intake_history.append(("user", user_input))
         
-        # Validate and update patient data with user input
-        if "name" not in st.session_state.patient_data and user_input.strip():
-            st.session_state.patient_data["name"] = user_input.strip()
-        
         # Construct context from history
         context = "Previous conversation:\n"
         for role, text in st.session_state.intake_history[-4:]:  # Last 4 exchanges
@@ -193,26 +132,10 @@ Begin by asking the first question. Keep questions short, acknowledge valid answ
         context += f"\nCurrent patient data: {json.dumps(st.session_state.patient_data, indent=2)}\n"
         context += "\nContinue the conversation naturally while gathering any missing information."
         
-        # Prioritize essential questions
-        essential_questions = ["name", "email", "dob", "gender", "phone"]
-        missing_essentials = [q for q in essential_questions if not st.session_state.patient_data.get(q)]
-        
-        if missing_essentials:
-            # Ask only essential questions
-            prompt = f"Please provide: {', '.join(missing_essentials)}. Ensure the information is correct."
-            reply = st.session_state.intake_response.send_message(prompt)
-            st.session_state.intake_history.append(("bot", reply.text.strip()))
-        else:
-            # Validate responses using LLM
-            validation_prompt = "Please verify the following information for correctness:"
-            for field, value in st.session_state.patient_data.items():
-                validation_prompt += f"\n- {field}: {value}"
-            validation_prompt += "\nIf any information is incorrect, please provide the correct details."
-            reply = st.session_state.intake_response.send_message(validation_prompt)
-            st.session_state.intake_history.append(("bot", reply.text.strip()))
-
-        # Debug: Log the reply text to diagnose issues
-        st.write("Debug: LLM Reply Text:", reply.text)
+        reply = st.session_state.intake_response.send_message(
+            context + "\n\nPatient: " + user_input
+        )
+        st.session_state.intake_history.append(("bot", reply.text.strip()))
 
         # Check if final JSON with status complete
         final_output = extract_json(reply.text)
@@ -220,7 +143,7 @@ Begin by asking the first question. Keep questions short, acknowledge valid answ
             patient_data = final_output.get("patient_data", {})
             
             # Validate required fields before allowing completion
-            required_fields = ["name", "email", "dob", "gender", "phone"]
+            required_fields = ["name", "email", "dob", "gender", "phone", "address"]
             missing_fields = [field for field in required_fields if not patient_data.get(field)]
             
             if missing_fields:
@@ -262,17 +185,19 @@ You are a medical assistant reviewing the following patient data:
 {json.dumps(patient_data, indent=2)}
 
 🎯 TASK:
-- Analyze the data for missing or unclear details.
-- Ask only essential follow-up questions.
-- If data is complete, return a JSON with status: "finalized".
-- Return JSON like:
+- Carefully analyze the above patient data.
+- Identify if any critical required medical details are missing, inconsistent, or unclear.
+- Do NOT ask unnecessary or overly detailed questions.
+- Ask only essential follow-up questions one at a time to complete missing key information.
+- If the data is sufficient and complete for medical intake purposes, return a JSON with status: "finalized".
+- After collecting all required info, return JSON like:
 {{
   "updated_patient_data": {{ ... }},
-  "notes": "Summary of additions",
+  "notes": "Summary of what was added or clarified",
   "status": "finalized"
 }}
 
-Begin your analysis now.
+Begin your focused analysis now.
 """
         st.session_state.followup_response = model.start_chat(history=[])
         reply = st.session_state.followup_response.send_message(prompt)
@@ -286,7 +211,7 @@ Begin your analysis now.
     else:
         st.write("No follow-up history available.")
 
-    user_input = st.text_input("Your answer here:", key="followup_input", help="Please provide your response here.")
+    user_input = st.text_input("Your answer here:", key="followup_input")
     submit = st.button("Submit follow-up answer", key="followup_submit")
 
     if submit and user_input:
@@ -308,19 +233,20 @@ def recommend_specialist(patient_data):
     prompt = f"""
 You are a medical triage assistant.
 
-Based on the patient data, recommend the most appropriate specialist(s).
+Based on the following patient data, recommend the most appropriate medical specialist(s) for consultation.
 
 Patient data:
 {json.dumps(patient_data, indent=2)}
 
 Instructions:
-- Analyze symptoms and history.
-- Recommend specialist types (e.g., Cardiologist, Neurologist).
-- Provide a rationale.
-- Return JSON:
+- Analyze symptoms, medical history, medications, allergies, and other relevant information.
+- Recommend 1 or more specialist types (e.g., Cardiologist, Neurologist, Dermatologist, Orthopedic Surgeon, etc.)
+- Provide a brief rationale for the recommendation.
+- Return ONLY a JSON object with this format:
+
 {{
-  "recommended_specialist": ["Specialist Name 1"],
-  "rationale": "Reason for recommendation.",
+  "recommended_specialist": ["Specialist Name 1", "Specialist Name 2"],
+  "rationale": "Short explanation why these specialists are recommended.",
   "status": "done"
 }}
 """
@@ -348,7 +274,7 @@ Given the patient data JSON below, check if ALL mandatory fields are present.
 
 Mandatory fields:
 
-- From Patient: "name", "email", "age", "gender", "Ph Number" (phone)
+- From Patient: "name", "email", "age", "gender", "Ph Number" (phone), "Address" (address)
 - If "symptoms" == "yes": "symptom_list" required (comma-separated string)
 - If "allergies" == "yes": "allergy_list" required
 - If "medications" == "yes": "medication_list" required
@@ -412,6 +338,12 @@ Begin your check and ask for missing info as needed, starting with email if it's
             d["gender"] = u_input
         elif "phone" in last_bot_msg or "ph number" in last_bot_msg:
             d["phone"] = u_input
+        elif "address" in last_bot_msg:
+            d["address"] = u_input
+            # Move from notes to address if it was stored in notes
+            if "notes" in d and d["notes"] and not d.get("address"):
+                d["address"] = d["notes"]
+                d["notes"] = ""
         elif "symptom" in last_bot_msg:
             d["symptom_list"] = u_input
             d["symptoms"] = "yes"
@@ -482,7 +414,7 @@ def migrate_existing_data(data):
             patient_data["email"] = ""
             
         # Ensure other required fields exist
-        required_fields = ["name", "email", "dob", "gender", "phone"]
+        required_fields = ["name", "email", "dob", "gender", "phone", "address"]
         for field in required_fields:
             if field not in patient_data:
                 patient_data[field] = ""
@@ -612,7 +544,7 @@ def main():
                 # Debug: Show database configuration (with password hidden)
                 debug_config = dict(db_config)
                 if "password" in debug_config:
-                    debug_config["password"] = "****"
+                    debug_config["password"] = "**"
                 st.write("Database Configuration:")
                 st.json(debug_config)
 
@@ -765,14 +697,6 @@ def main():
                 del st.session_state[key]
             st.session_state.step = "intake"
             st.rerun()
-
-    # Add a footer with contact information
-    st.markdown("""
-    ---
-    **Contact Us:**
-    - Email: support@medibot.com
-    - Phone: +1-800-555-0199
-    """)
 
 if __name__ == "__main__":
     main()
