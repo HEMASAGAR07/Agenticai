@@ -10,79 +10,225 @@ import pymysql
 from inserting_JSON_to_DB import db_config,insert_data_from_mapped_json
 from booking import book_appointment_from_json
 
-# Custom styling
+# Custom styling with modern design
 st.set_page_config(
     page_title="MediBot - Smart Medical Assistant",
     page_icon="🏥",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-# Custom CSS
+# Enhanced Custom CSS with animations and modern design
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+    
+    * {
+        font-family: 'Poppins', sans-serif;
+    }
+    
     .main {
         padding: 2rem;
+        background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
     }
+    
     .stButton>button {
-        background-color: #3498db;
+        width: 200px;
+        background: linear-gradient(45deg, #3498db, #2980b9);
         color: white;
-        border-radius: 20px;
-        padding: 0.5rem 2rem;
+        border-radius: 25px;
+        padding: 0.8rem 2rem;
         border: none;
+        font-weight: 500;
+        letter-spacing: 0.5px;
         transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
     }
+    
     .stButton>button:hover {
-        background-color: #2980b9;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        transform: translateY(-3px) scale(1.02);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        background: linear-gradient(45deg, #2980b9, #3498db);
     }
+    
     .success-message {
-        padding: 1rem;
-        border-radius: 10px;
-        background-color: #d4edda;
-        border: 1px solid #c3e6cb;
-        color: #155724;
-    }
-    .error-message {
-        padding: 1rem;
-        border-radius: 10px;
-        background-color: #f8d7da;
-        border: 1px solid #f5c6cb;
-        color: #721c24;
-    }
-    .info-box {
-        background-color: #e3f2fd;
-        padding: 1.5rem;
-        border-radius: 10px;
-        margin: 1rem 0;
-        border-left: 5px solid #2196f3;
-    }
-    .step-header {
-        background: linear-gradient(90deg, #3498db, #2980b9);
+        background: linear-gradient(45deg, #28a745, #20c997);
         color: white;
-        padding: 1rem;
-        border-radius: 10px;
-        margin: 1rem 0;
-    }
-    .chat-message {
         padding: 1rem;
         border-radius: 15px;
-        margin: 0.5rem 0;
-        max-width: 80%;
+        box-shadow: 0 4px 15px rgba(40, 167, 69, 0.2);
+        animation: slideIn 0.5s ease-out;
     }
-    .bot-message {
-        background-color: #f1f1f1;
-        margin-right: auto;
-    }
-    .user-message {
-        background-color: #e3f2fd;
-        margin-left: auto;
-    }
-    .input-container {
-        background-color: white;
+    
+    .error-message {
+        background: linear-gradient(45deg, #dc3545, #c82333);
+        color: white;
         padding: 1rem;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(220, 53, 69, 0.2);
+        animation: slideIn 0.5s ease-out;
+    }
+    
+    .info-box {
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(10px);
+        padding: 2rem;
+        border-radius: 20px;
+        margin: 1rem 0;
+        box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        transition: transform 0.3s ease;
+    }
+    
+    .info-box:hover {
+        transform: translateY(-5px);
+    }
+    
+    .step-header {
+        background: linear-gradient(120deg, #2193b0, #6dd5ed);
+        color: white;
+        padding: 2rem;
+        border-radius: 20px;
+        margin: 1rem 0;
+        box-shadow: 0 8px 32px rgba(33, 147, 176, 0.2);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .step-header::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(45deg, transparent 0%, rgba(255,255,255,0.1) 100%);
+        animation: shimmer 2s infinite;
+    }
+    
+    .chat-message {
+        padding: 1.5rem;
+        border-radius: 20px;
+        margin: 1rem 0;
+        max-width: 85%;
+        animation: fadeIn 0.5s ease-out;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    }
+    
+    .bot-message {
+        background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+        margin-right: auto;
+        border-bottom-left-radius: 5px;
+    }
+    
+    .user-message {
+        background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+        margin-left: auto;
+        border-bottom-right-radius: 5px;
+    }
+    
+    .input-container {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 20px;
+        box-shadow: 0 8px 32px rgba(31, 38, 135, 0.1);
+        margin: 1rem 0;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+    
+    .stTextInput>div>div>input {
+        border-radius: 25px;
+        padding: 1rem 1.5rem;
+        border: 2px solid #e0e0e0;
+        transition: all 0.3s ease;
+    }
+    
+    .stTextInput>div>div>input:focus {
+        border-color: #2193b0;
+        box-shadow: 0 0 0 2px rgba(33, 147, 176, 0.2);
+    }
+    
+    /* Progress Bar Styling */
+    .stProgress > div > div > div {
+        background: linear-gradient(90deg, #2193b0, #6dd5ed);
+        height: 10px;
         border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    /* Animations */
+    @keyframes slideIn {
+        from {
+            transform: translateX(-10px);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    @keyframes shimmer {
+        0% {
+            transform: translateX(-100%);
+        }
+        100% {
+            transform: translateX(100%);
+        }
+    }
+    
+    /* Card Layout */
+    .card {
+        background: white;
+        border-radius: 20px;
+        padding: 2rem;
+        margin: 1rem 0;
+        box-shadow: 0 8px 32px rgba(31, 38, 135, 0.1);
+        transition: all 0.3s ease;
+    }
+    
+    .card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 40px rgba(31, 38, 135, 0.15);
+    }
+    
+    /* Custom Containers */
+    .glass-container {
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 20px;
+        padding: 2rem;
+        margin: 1rem 0;
+    }
+    
+    .gradient-border {
+        position: relative;
+        padding: 2rem;
+        border-radius: 20px;
+        background: white;
+    }
+    
+    .gradient-border::before {
+        content: '';
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        right: -2px;
+        bottom: -2px;
+        background: linear-gradient(45deg, #2193b0, #6dd5ed);
+        border-radius: 22px;
+        z-index: -1;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -483,17 +629,16 @@ def migrate_existing_data(data):
 
 
 def main():
-    # Header with logo and title
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        st.markdown("# 🏥")
-    with col2:
-        st.markdown("""
-            <h1 style='color: #2c3e50;'>Medical Intake Assistant</h1>
-            <p style='color: #7f8c8d;'>Your AI-powered healthcare companion</p>
-        """, unsafe_allow_html=True)
+    # Modern Header with Glass Effect
+    st.markdown("""
+        <div class="glass-container" style="text-align: center; margin-bottom: 2rem;">
+            <div style="font-size: 3em; margin-bottom: 0.5rem;">🏥</div>
+            <h1 style="color: #2c3e50; font-size: 2.5em; margin-bottom: 0.5rem;">MediBot</h1>
+            <p style="color: #7f8c8d; font-size: 1.2em;">Your AI-Powered Healthcare Assistant</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-    # Progress bar
+    # Enhanced Progress Tracker
     if "step" not in st.session_state:
         st.session_state.step = "intake"
     
@@ -502,11 +647,16 @@ def main():
     progress = current_step / len(steps)
     
     st.markdown(f"""
-        <div style='padding: 1rem; background-color: #f8f9fa; border-radius: 10px; margin-bottom: 2rem;'>
-            <p style='margin-bottom: 0.5rem;'>Progress: Step {current_step} of {len(steps)}</p>
+        <div class="gradient-border" style="margin-bottom: 2rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0;">Progress</h3>
+                <span style="color: #2193b0; font-weight: 500;">Step {current_step} of {len(steps)}</span>
+            </div>
+            <div style="height: 10px; background: #e9ecef; border-radius: 10px; overflow: hidden;">
+                <div style="height: 100%; width: {progress*100}%; background: linear-gradient(90deg, #2193b0, #6dd5ed); transition: width 0.5s ease;"></div>
+            </div>
         </div>
     """, unsafe_allow_html=True)
-    st.progress(progress)
 
     # Migrate any existing session data
     if "patient_data" in st.session_state:
@@ -516,25 +666,32 @@ def main():
 
     if st.session_state.step == "intake":
         st.markdown("""
-            <div class='step-header'>
-                <h2>Step 1: Patient Intake</h2>
-                <p>Let's start by gathering your basic information</p>
+            <div class="step-header">
+                <h2 style="font-size: 1.8em; margin-bottom: 0.5rem;">👋 Welcome to Step 1: Patient Intake</h2>
+                <p style="font-size: 1.1em; opacity: 0.9;">Let's start by getting to know you better</p>
             </div>
         """, unsafe_allow_html=True)
         
+        # Wrap the intake form in a card
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         patient_data, summary, done = dynamic_medical_intake()
+        st.markdown('</div>', unsafe_allow_html=True)
+        
         if done:
             st.markdown("""
-                <div class='success-message'>
-                    ✅ Patient intake completed successfully!
+                <div class="success-message">
+                    <h3 style="margin: 0;">✨ Excellent Progress!</h3>
+                    <p style="margin: 0.5rem 0 0 0;">Your initial information has been successfully recorded.</p>
                 </div>
             """, unsafe_allow_html=True)
+            
             st.markdown(f"""
-                <div class='info-box'>
-                    <h4>Summary</h4>
-                    <p>{summary}</p>
+                <div class="info-box">
+                    <h4 style="color: #2193b0; margin-bottom: 1rem;">Summary of Your Information</h4>
+                    <p style="line-height: 1.6;">{summary}</p>
                 </div>
             """, unsafe_allow_html=True)
+            
             st.session_state.patient_data = patient_data
             st.session_state.summary = summary
             st.session_state.step = "followup"
@@ -542,9 +699,9 @@ def main():
 
     elif st.session_state.step == "followup":
         st.markdown("""
-            <div class='step-header'>
-                <h2>Step 2: Follow-up Questions</h2>
-                <p>Let's get some additional details to better understand your needs</p>
+            <div class="step-header">
+                <h2 style="font-size: 1.8em; margin-bottom: 0.5rem;">👋 Welcome to Step 2: Follow-up Questions</h2>
+                <p style="font-size: 1.1em; opacity: 0.9;">Let's get some additional details to better understand your needs</p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -552,15 +709,16 @@ def main():
         updated_data, notes, done = post_analysis_and_followup(patient_data)
         if done:
             st.markdown("""
-                <div class='success-message'>
-                    ✅ Follow-up questions completed!
+                <div class="success-message">
+                    <h3 style="margin: 0;">✨ Excellent Progress!</h3>
+                    <p style="margin: 0.5rem 0 0 0;">Your follow-up information has been successfully recorded.</p>
                 </div>
             """, unsafe_allow_html=True)
             if notes:
                 st.markdown(f"""
-                    <div class='info-box'>
-                        <h4>Additional Notes</h4>
-                        <p>{notes}</p>
+                    <div class="info-box">
+                        <h4 style="color: #2193b0; margin-bottom: 1rem;">Additional Notes</h4>
+                        <p style="line-height: 1.6;">{notes}</p>
                     </div>
                 """, unsafe_allow_html=True)
             st.session_state.patient_data = updated_data
@@ -570,9 +728,9 @@ def main():
 
     elif st.session_state.step == "specialist":
         st.markdown("""
-            <div class='step-header'>
-                <h2>Step 3: Specialist Recommendation</h2>
-                <p>Let's find the right specialist for you</p>
+            <div class="step-header">
+                <h2 style="font-size: 1.8em; margin-bottom: 0.5rem;">👋 Welcome to Step 3: Specialist Recommendation</h2>
+                <p style="font-size: 1.1em; opacity: 0.9;">Let's find the right specialist for you</p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -587,9 +745,9 @@ def main():
 
     elif st.session_state.step == "confirm":
         st.markdown("""
-            <div class='step-header'>
-                <h2>Step 4: Confirm Mandatory Fields</h2>
-                <p>Let's ensure all your information is correct</p>
+            <div class="step-header">
+                <h2 style="font-size: 1.8em; margin-bottom: 0.5rem;">👋 Welcome to Step 4: Confirm Mandatory Fields</h2>
+                <p style="font-size: 1.1em; opacity: 0.9;">Let's ensure all your information is correct</p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -610,14 +768,15 @@ def main():
         updated_data, confirmed, message = confirm_mandatory_fields(final_json)
         if confirmed:
             st.markdown("""
-                <div class='success-message'>
-                    ✅ Mandatory fields confirmed!
+                <div class="success-message">
+                    <h3 style="margin: 0;">✨ Excellent Progress!</h3>
+                    <p style="margin: 0.5rem 0 0 0;">Your information has been successfully confirmed.</p>
                 </div>
             """, unsafe_allow_html=True)
             st.markdown(f"""
-                <div class='info-box'>
-                    <h4>Final Patient Data</h4>
-                    <p>{json.dumps(updated_data, indent=2)}</p>
+                <div class="info-box">
+                    <h4 style="color: #2193b0; margin-bottom: 1rem;">Final Patient Data</h4>
+                    <p style="line-height: 1.6;">{json.dumps(updated_data, indent=2)}</p>
                 </div>
             """, unsafe_allow_html=True)
             st.session_state.final_patient_json = updated_data
@@ -630,9 +789,9 @@ def main():
 
     elif st.session_state.step == "mapping":
         st.markdown("""
-            <div class='step-header'>
-                <h2>Step 5: Map Collected Info to DB Schema</h2>
-                <p>Let's ensure your data is correctly mapped to our database</p>
+            <div class="step-header">
+                <h2 style="font-size: 1.8em; margin-bottom: 0.5rem;">👋 Welcome to Step 5: Map Collected Info to DB Schema</h2>
+                <p style="font-size: 1.1em; opacity: 0.9;">Let's ensure your data is correctly mapped to our database</p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -667,9 +826,9 @@ def main():
 
     elif st.session_state.step == "db_insert":
         st.markdown("""
-            <div class='step-header'>
-                <h2>Step 6: Review and Insert Data into Database</h2>
-                <p>Let's ensure your data is correctly inserted into our database</p>
+            <div class="step-header">
+                <h2 style="font-size: 1.8em; margin-bottom: 0.5rem;">�� Welcome to Step 6: Review and Insert Data into Database</h2>
+                <p style="font-size: 1.1em; opacity: 0.9;">Let's ensure your data is correctly inserted into our database</p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -758,9 +917,9 @@ def main():
 
     elif st.session_state.step == "booking":
         st.markdown("""
-            <div class='step-header'>
-                <h2>Step 7: Book Appointment with Recommended Specialist</h2>
-                <p>Let's schedule your appointment with the recommended specialist</p>
+            <div class="step-header">
+                <h2 style="font-size: 1.8em; margin-bottom: 0.5rem;">�� Welcome to Step 7: Book Appointment with Recommended Specialist</h2>
+                <p style="font-size: 1.1em; opacity: 0.9;">Let's schedule your appointment with the recommended specialist</p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -833,9 +992,9 @@ def main():
 
     else:  # done step
         st.markdown("""
-            <div class='step-header'>
-                <h2>All steps completed!</h2>
-                <p>Thank you for using the Medical Intake Assistant!</p>
+            <div class="step-header">
+                <h2 style="font-size: 1.8em; margin-bottom: 0.5rem;">🎉 All steps completed!</h2>
+                <p style="font-size: 1.1em; opacity: 0.9;">Thank you for using the Medical Intake Assistant!</p>
             </div>
         """, unsafe_allow_html=True)
         
