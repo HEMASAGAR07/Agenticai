@@ -293,7 +293,34 @@ def dynamic_medical_intake():
         st.session_state.current_field = "name"
     if "data_confirmed" not in st.session_state:
         st.session_state.data_confirmed = False
+    if "in_health_assessment" not in st.session_state:
+        st.session_state.in_health_assessment = False
 
+    # If we're in health assessment, skip the initial collection logic
+    if st.session_state.in_health_assessment:
+        if st.session_state.intake_history:
+            st.write(f"{st.session_state.intake_history[-1][1]}")
+
+        user_input = st.text_input("Your answer:", key="intake_input", 
+                                  placeholder="Type your response here...")
+        submit = st.button("Continue", key="intake_submit")
+
+        if submit and user_input:
+            st.session_state.intake_history.append(("user", user_input))
+            reply = st.session_state.intake_response.send_message(user_input)
+            st.session_state.intake_history.append(("bot", reply.text.strip()))
+            
+            # Check if health intake is complete
+            final_output = extract_json(reply.text)
+            if final_output.get("status") == "complete":
+                if st.session_state.db_data_retrieved:
+                    final_output["patient_data"].update(st.session_state.patient_data)
+                st.success("✅ Medical intake completed successfully!")
+                return final_output.get("patient_data", {}), final_output.get("summary", ""), True
+            st.rerun()
+        return {}, "", False
+
+    # Initial collection logic
     if st.session_state.intake_response is None:
         intro = """
 You are MediBot, a medical intake assistant.
@@ -344,6 +371,7 @@ Ask for name FIRST:
         
         if st.button("✅ Confirm Details"):
             st.session_state.data_confirmed = True
+            st.session_state.in_health_assessment = True
             # Start health-specific questions immediately
             health_prompt = f"""
 You are MediBot, a medical intake assistant. The patient has confirmed their details.
@@ -389,15 +417,15 @@ Begin with: "What symptoms or health concerns are you experiencing today? If non
         
         return {}, "", False
 
-    # Only show the last bot message
-    if st.session_state.intake_history:
+    # Only show the last bot message during initial collection
+    if st.session_state.intake_history and not st.session_state.in_health_assessment:
         st.write(f"{st.session_state.intake_history[-1][1]}")
 
     user_input = st.text_input("Your answer:", key="intake_input", 
                               placeholder="Type your response here...")
     submit = st.button("Continue", key="intake_submit")
 
-    if submit and user_input:
+    if submit and user_input and not st.session_state.in_health_assessment:
         # Handle name input
         if st.session_state.current_field == "name":
             is_valid, result = is_valid_name(user_input)
@@ -433,22 +461,6 @@ Begin with: "What symptoms or health concerns are you experiencing today? If non
             else:
                 st.error("No existing records found. Please contact support to update your information.")
                 return {}, "", False
-        
-        # Handle health-related questions
-        else:
-            st.session_state.intake_history.append(("user", user_input))
-            reply = st.session_state.intake_response.send_message(user_input)
-            st.session_state.intake_history.append(("bot", reply.text.strip()))
-            
-            # Check if health intake is complete
-            final_output = extract_json(reply.text)
-            if final_output.get("status") == "complete":
-                # Merge any existing data with new health data
-                if st.session_state.db_data_retrieved:
-                    final_output["patient_data"].update(st.session_state.patient_data)
-                st.success("✅ Medical intake completed successfully!")
-                return final_output.get("patient_data", {}), final_output.get("summary", ""), True
-            st.rerun()
 
     return {}, "", False
 
