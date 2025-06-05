@@ -307,26 +307,48 @@ def dynamic_medical_intake():
 
         if submit and user_input:
             st.session_state.intake_history.append(("user", user_input))
-            reply = st.session_state.intake_response.send_message(user_input)
-            st.session_state.intake_history.append(("bot", reply.text.strip()))
             
-            # Check if health intake is complete
-            final_output = extract_json(reply.text)
-            if final_output.get("status") == "complete":
+            # Modify the prompt to focus on symptom analysis instead of doctor consultation
+            analysis_prompt = f"""
+You are a medical intake system focused on symptom analysis.
+
+Based on the user's response, analyze their symptoms and provide recommendations.
+DO NOT mention doctor consultation or appointments.
+Instead, focus on:
+1. Identifying symptoms
+2. Analyzing severity and duration
+3. Suggesting relevant medical specialties based on symptoms
+4. Providing initial recommendations
+
+Current response: {user_input}
+
+Return response in JSON format:
+{{
+    "symptoms_identified": [...],
+    "severity_analysis": "...",
+    "recommended_specialists": [...],
+    "rationale": "...",
+    "status": "complete" or "need_more_info"
+}}
+"""
+            reply = st.session_state.intake_response.send_message(analysis_prompt)
+            analysis_result = extract_json(reply.text)
+            
+            if analysis_result.get("status") == "complete":
                 if st.session_state.db_data_retrieved:
-                    final_output["patient_data"].update(st.session_state.patient_data)
+                    final_output = {
+                        "patient_data": st.session_state.patient_data,
+                        "symptoms_analysis": analysis_result,
+                        "status": "complete"
+                    }
+                else:
+                    final_output = {
+                        "patient_data": {},
+                        "symptoms_analysis": analysis_result,
+                        "status": "complete"
+                    }
                 
-                # Get specialist recommendations immediately
-                specialists, rationale = recommend_specialist(final_output["patient_data"])
-                final_output["recommended_specialist"] = specialists
-                final_output["specialist_rationale"] = rationale
-                
-                st.success("✅ Medical intake completed successfully!")
-                st.write("### Recommended Specialists")
-                st.write("Based on your symptoms and medical history:")
-                for specialist in specialists:
-                    st.write(f"👨‍⚕️ {specialist}")
-                st.write(f"**Rationale:** {rationale}")
+                st.success("✅ Symptom analysis completed")
                 
                 # Save the complete data
                 st.session_state.final_patient_json = final_output
@@ -334,7 +356,7 @@ def dynamic_medical_intake():
                 # Proceed to mapping
                 try:
                     mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_output)
-                    st.success("✅ Data mapped successfully!")
+                    st.success("✅ Data mapped successfully")
                     
                     # Save mapped data
                     with open("mapped_output.json", "w") as f:
@@ -346,8 +368,12 @@ def dynamic_medical_intake():
                 except Exception as e:
                     st.error(f"Mapping failed: {str(e)}")
                 
-                return final_output["patient_data"], final_output.get("summary", ""), True
-            st.rerun()
+                return final_output.get("patient_data", {}), "", True
+            else:
+                # Continue gathering more information
+                st.session_state.intake_history.append(("bot", reply.text.strip()))
+                st.rerun()
+            
         return {}, "", False
 
     # Initial collection logic
@@ -832,8 +858,8 @@ def main():
         st.markdown("# 🏥")
     with col2:
         st.markdown("""
-            <h1 style='color: #2c3e50;'>Medical Intake Assistant</h1>
-            <p style='color: #7f8c8d;'>Your AI-powered healthcare companion</p>
+            <h1 style='color: #2c3e50;'>Medical Symptom Analysis</h1>
+            <p style='color: #7f8c8d;'>AI-powered symptom analysis and recommendations</p>
         """, unsafe_allow_html=True)
 
     # Progress bar
@@ -841,7 +867,7 @@ def main():
         st.session_state.step = "intake"
     
     # Simplified steps
-    steps = ["intake", "db_insert", "booking"]
+    steps = ["intake", "db_insert"]
     current_step = steps.index(st.session_state.step) + 1
     progress = current_step / len(steps)
     
@@ -861,22 +887,21 @@ def main():
     if st.session_state.step == "intake":
         st.markdown("""
             <div class='step-header'>
-                <h2>Step 1: Patient Intake & Assessment</h2>
-                <p>Let's gather your information and understand your health concerns</p>
+                <h2>Step 1: Symptom Analysis</h2>
+                <p>Let's analyze your symptoms and provide recommendations</p>
             </div>
         """, unsafe_allow_html=True)
         
-        patient_data, summary, done = dynamic_medical_intake()
+        patient_data, _, done = dynamic_medical_intake()
         if done:
-            # The specialist recommendation and mapping are now handled in dynamic_medical_intake
-            # We'll automatically move to db_insert step
+            # The symptom analysis and mapping are now handled in dynamic_medical_intake
             pass
 
     elif st.session_state.step == "db_insert":
         st.markdown("""
             <div class='step-header'>
-                <h2>Step 2: Saving Your Information</h2>
-                <p>Let's save your information securely</p>
+                <h2>Step 2: Saving Analysis</h2>
+                <p>Saving your symptom analysis and recommendations</p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -886,35 +911,50 @@ def main():
                 with open(mapped_file, "r") as f:
                     mapped_result = json.load(f)
 
-                # Debug: Show database configuration (with password hidden)
-                debug_config = dict(db_config)
-                if "password" in debug_config:
-                    debug_config["password"] = "**"
-
-                # Check if data has been inserted successfully
                 if "db_insert_success" in st.session_state and st.session_state.db_insert_success:
-                    st.success("✅ Data has been successfully saved!")
-                    if st.button("Proceed to Booking", key="proceed_to_booking"):
-                        st.session_state.step = "booking"
+                    st.success("✅ Analysis saved successfully!")
+                    
+                    # Show the analysis results
+                    if "symptoms_analysis" in mapped_result:
+                        analysis = mapped_result["symptoms_analysis"]
+                        st.write("### Analysis Results")
+                        
+                        if "symptoms_identified" in analysis:
+                            st.write("**Identified Symptoms:**")
+                            for symptom in analysis["symptoms_identified"]:
+                                st.write(f"- {symptom}")
+                        
+                        if "severity_analysis" in analysis:
+                            st.write(f"**Severity Analysis:** {analysis['severity_analysis']}")
+                        
+                        if "recommended_specialists" in analysis:
+                            st.write("**Recommended Medical Specialties:**")
+                            for specialist in analysis["recommended_specialists"]:
+                                st.write(f"- {specialist}")
+                        
+                        if "rationale" in analysis:
+                            st.write(f"**Analysis Rationale:** {analysis['rationale']}")
+                    
+                    if st.button("Start New Analysis"):
+                        for key in list(st.session_state.keys()):
+                            del st.session_state[key]
+                        st.session_state.step = "intake"
                         st.rerun()
                     return
 
-                if st.button("Save Information", key="insert_db"):
+                if st.button("Save Analysis", key="insert_db"):
                     try:
-                        # Test database connection first
-                        st.info("Testing database connection...")
                         conn = pymysql.connect(**db_config)
                         cursor = conn.cursor(pymysql.cursors.DictCursor)
                         
-                        # Insert data into database
                         result = insert_data_from_mapped_json(mapped_result)
                         
                         if result.get("status") == "success":
-                            st.success("✅ Your information has been saved successfully!")
+                            st.success("✅ Analysis saved successfully!")
                             st.session_state.db_insert_success = True
                             st.rerun()
                         else:
-                            st.error("❌ Failed to save your information")
+                            st.error("❌ Failed to save analysis")
                             st.session_state.db_insert_success = False
 
                     except Exception as e:
@@ -927,62 +967,17 @@ def main():
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
         else:
-            st.error("Data not ready for saving. Please complete the intake first.")
-
-    elif st.session_state.step == "booking":
-        st.markdown("""
-            <div class='step-header'>
-                <h2>Step 3: Book Appointment</h2>
-                <p>Let's schedule your appointment with the recommended specialist</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        if not st.session_state.get("db_insert_success", False):
-            st.warning("⚠️ Please complete the previous step first")
-            if st.button("Go Back"):
-                st.session_state.step = "db_insert"
-                st.rerun()
-            return
-        
-        try:
-            with open("final_patient_summary.json", "r") as f:
-                patient_data = json.load(f)
-            
-            specialists = patient_data.get("recommended_specialist", [])
-            if specialists:
-                st.write("Recommended Specialists:")
-                for specialist in specialists:
-                    st.write(f"👨‍⚕️ {specialist}")
-            
-            if st.button("Book Appointment", key="book_appointment"):
-                try:
-                    result = book_appointment_from_json()
-                    if isinstance(result, str):
-                        if "Appointment booked" in result:
-                            st.success("✅ " + result)
-                            st.session_state.booking_success = True
-                            if st.button("Finish", key="finish_booking"):
-                                st.session_state.step = "done"
-                                st.rerun()
-                        else:
-                            st.info(result)
-                except Exception as e:
-                    st.error(f"❌ Booking failed: {str(e)}")
-                    
-        except FileNotFoundError:
-            st.error("❌ Patient data not found. Please complete the intake first.")
-        except Exception as e:
-            st.error(f"❌ Unexpected error: {str(e)}")
+            st.error("Analysis data not ready for saving. Please complete the analysis first.")
 
     else:  # done step
         st.markdown("""
             <div class='step-header'>
-                <h2>All Done!</h2>
-                <p>Thank you for using our Medical Intake Assistant</p>
+                <h2>Analysis Complete</h2>
+                <p>Thank you for using our Medical Symptom Analysis system</p>
             </div>
         """, unsafe_allow_html=True)
         
-        if st.button("Start New Intake"):
+        if st.button("Start New Analysis"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.session_state.step = "intake"
