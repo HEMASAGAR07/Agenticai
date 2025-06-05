@@ -11,8 +11,13 @@ from inserting_JSON_to_DB import db_config,insert_data_from_mapped_json
 from booking import book_appointment_from_json
 import streamlit.components.v1 as components
 
-# Import additional Streamlit components for UI enhancement
-import streamlit.components.v1 as components
+# Enhance the UI with a custom theme and layout
+st.set_page_config(
+    page_title="MediBot - Medical Intake Assistant",
+    page_icon="🩺",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 # Import Google Fonts and FontAwesome for icons
 st.markdown(
@@ -60,60 +65,6 @@ else:
 
 # Add icons to the sidebar
 st.sidebar.markdown('## <i class="fas fa-user"></i> Navigation', unsafe_allow_html=True)
-
-# Enhance the UI with a custom theme and layout
-st.set_page_config(
-    page_title="MediBot - Medical Intake Assistant",
-    page_icon="🩺",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# Add a custom CSS style for better UI
-st.markdown(
-    """
-    <style>
-    .reportview-container {
-        background: linear-gradient(to right, #f0f2f6, #e0e4e8);
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }
-    .sidebar .sidebar-content {
-        background: #e0e4e8;
-    }
-    .stButton>button {
-        background-color: #4CAF50;
-        color: white;
-        border-radius: 8px;
-        transition: background-color 0.3s ease, transform 0.3s ease;
-    }
-    .stButton>button:hover {
-        background-color: #45a049;
-        transform: scale(1.05);
-    }
-    .stTextInput>div>div>input {
-        border: 1px solid #4CAF50;
-        border-radius: 4px;
-        padding: 8px;
-        transition: border-color 0.3s ease;
-    }
-    .stTextInput>div>div>input:focus {
-        border-color: #45a049;
-    }
-    .stProgress>div>div>div {
-        background-color: #4CAF50;
-    }
-    @media (max-width: 768px) {
-        .reportview-container {
-            padding: 10px;
-        }
-        .stButton>button {
-            width: 100%;
-        }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
 # Add a header with an icon
 st.title("MediBot - Your Medical Intake Assistant 🩺")
