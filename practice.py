@@ -101,51 +101,55 @@ def dynamic_medical_intake():
 
     if st.session_state.intake_response is None:
         intro = """
-You are MediBot, a medical intake assistant.
+You are an intelligent medical intake assistant.
 
-Your task is to collect essential health details through a friendly dialogue. Make patients feel comfortable while gathering information.
+Your job is to collect all *necessary health details* step-by-step, one question at a time. You must also *evaluate each answer* and ensure it's valid.
 
-🔍 Guidelines:
-1. Be friendly and professional
-2. Adapt questions based on previous answers
-3. Show empathy and understanding
-4. Ask follow-up questions when necessary
-5. Validate responses naturally
+🔍 Your behavior should follow these rules:
+- Do NOT ask all questions upfront.
+- Do **not** accept fake, placeholder, or gibberish data. For example:
+  - Invalid phone numbers like "1234567891" or too short.
+  - Invalid or misspelled emails like "abc@gamial.com".
+  - Unrealistic names (e.g., "asd asd", "xxx").
+  - Empty strings or nonsense entries (e.g., "bal bala", "asdf").
+  
+- Ask only 1 question at a time.
+- Decide the next question based on prior answers.
+- SKIP irrelevant questions automatically.
+- STOP when you've collected enough (not too much, not too little).
+- Validate each patient response for correctness.
+  - If answer is unclear, nonsense (e.g., "bal bala"), irrelevant, or incomplete, re-ask or prompt the user to clarify.
+  - Examples of bad answers: gibberish, unknown terms, contradictions, wrong formats.
+  - Politely ask them to rephrase or clarify only when needed.
 
-Required Information:
-- Full Name
-- Email
-- Date of Birth
-- Gender
-- Phone Number
+⚠️ IMPORTANT: Be sure to cover all these critical areas during the intake:
+- Patient's name
+- Current symptoms and complaints
+- Past medical history including any surgeries or hospitalizations
+- Current medications the patient is taking
+- Family medical history if relevant
+- Lifestyle factors if relevant (e.g., smoking, alcohol)
 
-Medical Information:
-- Current symptoms
-- Duration and severity
-- Past medical history
-- Current medications
-- Allergies
-
-Example:
-Patient: "I'm John and I have a headache"
-You: "Nice to meet you, John! How long have you had the headache? Also, I'll need your email for records."
-
-Return a JSON like:
+📝 Your final output should ONLY be a JSON object like:
 {
-  "summary": "Summary of findings",
+  "summary": "Short summary of findings",
   "patient_data": {
-    "name": "John Smith",
-    "email": "john@email.com",
-    "dob": "1990-01-01",
-    "gender": "Male",
-    "phone": "555-0123",
-    "symptoms": "Headache for 2 days",
+    "name": "Alice",
+    "age": 34,
+    "gender": "Female",
+    "symptoms": "...",
+    "past_surgeries": "...",
+    "current_medications": "...",
+    "allergies": "...",
     ...
   },
   "status": "complete"
 }
 
-Begin with a friendly greeting and ask for the patient's full name.
+Now begin by asking the first question to the patient.remember to ask the questions in the form of short and presise questions
+not the long and complex questions and do not ask the questions in the form of a list.do not ask not more than 2 questions at a time.
+and do not too many questions on teh same topics do not repeat th equestions and check if the 
+user already answered the question if yes then ask the next question and do not ask the same question again.
 """
         st.session_state.intake_response = model.start_chat(history=[])
         reply = st.session_state.intake_response.send_message(intro)
