@@ -287,28 +287,103 @@ def dynamic_medical_intake():
         st.session_state.patient_data = {}
     if "initial_collection_done" not in st.session_state:
         st.session_state.initial_collection_done = False
-    if "db_data_retrieved" not in st.session_state:
-        st.session_state.db_data_retrieved = False
     if "current_field" not in st.session_state:
         st.session_state.current_field = "name"
-    if "data_confirmed" not in st.session_state:
-        st.session_state.data_confirmed = False
-    if "in_health_assessment" not in st.session_state:
-        st.session_state.in_health_assessment = False
+    if "required_fields_complete" not in st.session_state:
+        st.session_state.required_fields_complete = False
 
-    # If we're in health assessment, skip the initial collection logic
-    if st.session_state.in_health_assessment:
-        if st.session_state.intake_history:
-            st.write(f"{st.session_state.intake_history[-1][1]}")
+    # First collect required information
+    if not st.session_state.required_fields_complete:
+        required_fields = {
+            "name": "Please enter your full name:",
+            "email": "Please enter your email:",
+            "age": "Please enter your age:",
+            "gender": "Please enter your gender:",
+            "phone": "Please enter your phone number:"
+        }
 
-        user_input = st.text_input("Your answer:", key="intake_input", 
+        current_field = st.session_state.current_field
+        
+        if current_field in required_fields:
+            st.write(required_fields[current_field])
+            user_input = st.text_input(f"Enter {current_field}:", key=f"input_{current_field}")
+            submit = st.button("Continue", key=f"submit_{current_field}")
+
+            if submit and user_input:
+                # Validate input based on field type
+                is_valid = True
+                error_message = ""
+                
+                if current_field == "name":
+                    is_valid, result = is_valid_name(user_input)
+                    error_message = result if not is_valid else ""
+                    if is_valid:
+                        st.session_state.patient_data['full_name'] = result
+                elif current_field == "email":
+                    if "@" not in user_input or "." not in user_input:
+                        is_valid = False
+                        error_message = "Please enter a valid email address"
+                    else:
+                        st.session_state.patient_data['email'] = user_input
+                elif current_field == "phone":
+                    is_valid, result = is_valid_phone(user_input)
+                    error_message = result if not is_valid else ""
+                    if is_valid:
+                        st.session_state.patient_data['phone'] = result
+                elif current_field == "age":
+                    try:
+                        age = int(user_input)
+                        if 0 <= age <= 120:
+                            st.session_state.patient_data['age'] = age
+                        else:
+                            is_valid = False
+                            error_message = "Please enter a valid age between 0 and 120"
+                    except ValueError:
+                        is_valid = False
+                        error_message = "Please enter a valid number for age"
+                else:
+                    st.session_state.patient_data[current_field] = user_input
+
+                if is_valid:
+                    # Move to next field
+                    fields = list(required_fields.keys())
+                    current_index = fields.index(current_field)
+                    if current_index < len(fields) - 1:
+                        st.session_state.current_field = fields[current_index + 1]
+                    else:
+                        st.session_state.required_fields_complete = True
+                        st.session_state.in_health_assessment = True
+                    st.rerun()
+                else:
+                    st.error(error_message)
+            return {}, "", False
+
+    # Once required fields are complete, proceed with symptom analysis
+    if st.session_state.required_fields_complete:
+        if not st.session_state.intake_response:
+            analysis_prompt = """
+You are a medical intake system focused on symptom analysis.
+Start by asking about the patient's symptoms or health concerns.
+Ask one question at a time.
+Keep questions clear and focused.
+DO NOT mention doctor consultation or appointments.
+
+First question: "What symptoms or health concerns are you experiencing today? Please describe them in detail."
+"""
+            st.session_state.intake_response = model.start_chat(history=[])
+            reply = st.session_state.intake_response.send_message(analysis_prompt)
+            st.session_state.intake_history.append(("bot", reply.text.strip()))
+            st.rerun()
+            return {}, "", False
+
+        st.write(f"{st.session_state.intake_history[-1][1]}")
+        user_input = st.text_input("Your answer:", key="symptom_input", 
                                   placeholder="Type your response here...")
-        submit = st.button("Continue", key="intake_submit")
+        submit = st.button("Continue", key="symptom_submit")
 
         if submit and user_input:
             st.session_state.intake_history.append(("user", user_input))
             
-            # Modify the prompt to focus on symptom analysis instead of doctor consultation
             analysis_prompt = f"""
 You are a medical intake system focused on symptom analysis.
 
@@ -335,20 +410,13 @@ Return response in JSON format:
             analysis_result = extract_json(reply.text)
             
             if analysis_result.get("status") == "complete":
-                if st.session_state.db_data_retrieved:
-                    final_output = {
-                        "patient_data": st.session_state.patient_data,
-                        "symptoms_analysis": analysis_result,
-                        "status": "complete"
-                    }
-                else:
-                    final_output = {
-                        "patient_data": {},
-                        "symptoms_analysis": analysis_result,
-                        "status": "complete"
-                    }
+                final_output = {
+                    "patient_data": st.session_state.patient_data,
+                    "symptoms_analysis": analysis_result,
+                    "status": "complete"
+                }
                 
-                st.success("✅ Symptom analysis completed")
+                st.success("✅ Analysis completed")
                 
                 # Save the complete data
                 st.session_state.final_patient_json = final_output
@@ -370,153 +438,10 @@ Return response in JSON format:
                 
                 return final_output.get("patient_data", {}), "", True
             else:
-                # Continue gathering more information
                 st.session_state.intake_history.append(("bot", reply.text.strip()))
                 st.rerun()
             
         return {}, "", False
-
-    # Initial collection logic
-    if st.session_state.intake_response is None:
-        intro = """
-You are MediBot, a medical intake assistant.
-
-Ask for name FIRST:
-- Start with: "Please enter your full name:"
-- Validate name but don't show validation details
-- After valid name, ask for email
-- Keep it simple and direct
-"""
-        st.session_state.intake_response = model.start_chat(history=[])
-        reply = st.session_state.intake_response.send_message(intro)
-        st.session_state.intake_history.append(("bot", "Please enter your full name:"))
-    else:
-        reply = st.session_state.intake_response
-
-    # If we have retrieved data but not confirmed it yet, show confirmation UI
-    if st.session_state.db_data_retrieved and not st.session_state.data_confirmed:
-        st.markdown("### Your Information")
-        st.markdown("Please verify if these details are correct:")
-        
-        patient_data = st.session_state.patient_data
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Personal Details:**")
-            st.write(f"📝 Name: {patient_data.get('full_name', '')}")
-            st.write(f"📧 Email: {patient_data.get('email', '')}")
-            st.write(f"📱 Phone: {patient_data.get('phone', '')}")
-            
-        with col2:
-            st.markdown("**Additional Information:**")
-            st.write(f"🎂 Date of Birth: {patient_data.get('DOB', '')}")
-            st.write(f"⚧ Gender: {patient_data.get('gender', '')}")
-            st.write(f"📍 Address: {patient_data.get('address', '')}")
-
-        # Show medical history if available
-        if any(key in patient_data for key in ['previous_symptoms', 'previous_medications', 'previous_allergies', 'previous_surgeries']):
-            st.markdown("### Previous Medical History")
-            if patient_data.get('previous_symptoms'):
-                st.write("🤒 Previous Symptoms:", patient_data['previous_symptoms'])
-            if patient_data.get('previous_medications'):
-                st.write("💊 Previous Medications:", patient_data['previous_medications'])
-            if patient_data.get('previous_allergies'):
-                st.write("⚠️ Known Allergies:", patient_data['previous_allergies'])
-            if patient_data.get('previous_surgeries'):
-                st.write("🏥 Previous Surgeries:", patient_data['previous_surgeries'])
-        
-        if st.button("✅ Confirm Details"):
-            st.session_state.data_confirmed = True
-            st.session_state.in_health_assessment = True
-            # Start health-specific questions immediately
-            health_prompt = f"""
-You are MediBot, a medical intake assistant. The patient has confirmed their details.
-
-IMPORTANT RULES:
-1. Start IMMEDIATELY with symptoms assessment
-2. Accept and process ALL user responses, including simple yes/no answers
-3. If user says "yes", follow up with specific questions about their symptoms
-4. If user says "no", ask if they have any other health concerns
-5. Never ignore user input or ask for clarification unnecessarily
-
-CONVERSATION FLOW:
-1. First Question: "What symptoms or health concerns are you experiencing today? If none, please say 'no'."
-
-2. Based on Response:
-   If symptoms mentioned:
-   - Ask about severity (mild/moderate/severe)
-   - Ask about duration
-   - Ask about frequency
-   
-   If "yes":
-   - Ask "Please describe your symptoms or health concerns."
-   
-   If "no":
-   - Ask "Do you have any other health concerns you'd like to discuss?"
-
-3. Follow-up Questions:
-   - Keep questions specific and direct
-   - Process every answer meaningfully
-   - Don't repeat questions
-   - Don't ignore simple answers
-
-Begin with: "What symptoms or health concerns are you experiencing today? If none, please say 'no'."
-"""
-            st.session_state.intake_response = model.start_chat(history=[])
-            reply = st.session_state.intake_response.send_message(health_prompt)
-            st.session_state.intake_history.append(("bot", reply.text.strip()))
-            st.rerun()
-        
-        if st.button("❌ Details are Incorrect"):
-            st.error("Please contact support to update your information.")
-            return {}, "", False
-        
-        return {}, "", False
-
-    # Only show the last bot message during initial collection
-    if st.session_state.intake_history and not st.session_state.in_health_assessment:
-        st.write(f"{st.session_state.intake_history[-1][1]}")
-
-    user_input = st.text_input("Your answer:", key="intake_input", 
-                              placeholder="Type your response here...")
-    submit = st.button("Continue", key="intake_submit")
-
-    if submit and user_input and not st.session_state.in_health_assessment:
-        # Handle name input
-        if st.session_state.current_field == "name":
-            is_valid, result = is_valid_name(user_input)
-            if not is_valid:
-                st.error(f"Invalid name: {result}")
-                return {}, "", False
-            
-            # Save name and move to email collection
-            st.session_state.patient_data['full_name'] = result
-            st.session_state.current_field = "email"
-            st.session_state.intake_history.append(("bot", "Please enter your email:"))
-            st.rerun()
-            return {}, "", False
-            
-        # Handle email input
-        elif st.session_state.current_field == "email":
-            # Basic email validation
-            if "@" not in user_input or "." not in user_input:
-                st.error("Please enter a valid email address.")
-                return {}, "", False
-            
-            # Save email and proceed
-            st.session_state.patient_data['email'] = user_input
-            st.session_state.initial_collection_done = True
-            
-            # Try to retrieve user data from DB
-            db_user_data = get_user_from_db(user_input)
-            if db_user_data:
-                # Merge DB data with collected data
-                st.session_state.patient_data.update(db_user_data)
-                st.session_state.db_data_retrieved = True
-                st.rerun()
-            else:
-                st.error("No existing records found. Please contact support to update your information.")
-                return {}, "", False
 
     return {}, "", False
 
