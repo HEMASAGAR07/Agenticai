@@ -14,6 +14,53 @@ import streamlit.components.v1 as components
 # Import additional Streamlit components for UI enhancement
 import streamlit.components.v1 as components
 
+# Import Google Fonts and FontAwesome for icons
+st.markdown(
+    """
+    <link href='https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap' rel='stylesheet'>
+    <link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'>
+    <style>
+    body {
+        font-family: 'Roboto', sans-serif;
+    }
+    .stButton>button {
+        font-family: 'Roboto', sans-serif;
+    }
+    .dark-mode .reportview-container {
+        background: #2e2e2e;
+        color: #f0f0f0;
+    }
+    .dark-mode .sidebar .sidebar-content {
+        background: #3e3e3e;
+    }
+    .dark-mode .stButton>button {
+        background-color: #555;
+        color: #f0f0f0;
+    }
+    .dark-mode .stTextInput>div>div>input {
+        border: 1px solid #555;
+        background-color: #3e3e3e;
+        color: #f0f0f0;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# Add a dark mode toggle
+if 'dark_mode' not in st.session_state:
+    st.session_state.dark_mode = False
+
+dark_mode_toggle = st.sidebar.checkbox('🌙 Dark Mode', key='dark_mode')
+
+if dark_mode_toggle:
+    st.markdown('<style>body{background-color: #2e2e2e; color: #f0f0f0;}</style>', unsafe_allow_html=True)
+else:
+    st.markdown('<style>body{background-color: #ffffff; color: #000000;}</style>', unsafe_allow_html=True)
+
+# Add icons to the sidebar
+st.sidebar.markdown('## <i class="fas fa-user"></i> Navigation', unsafe_allow_html=True)
+
 # Enhance the UI with a custom theme and layout
 st.set_page_config(
     page_title="MediBot - Medical Intake Assistant",
@@ -37,17 +84,31 @@ st.markdown(
         background-color: #4CAF50;
         color: white;
         border-radius: 8px;
-        transition: background-color 0.3s ease;
+        transition: background-color 0.3s ease, transform 0.3s ease;
     }
     .stButton>button:hover {
         background-color: #45a049;
+        transform: scale(1.05);
     }
     .stTextInput>div>div>input {
         border: 1px solid #4CAF50;
         border-radius: 4px;
+        padding: 8px;
+        transition: border-color 0.3s ease;
+    }
+    .stTextInput>div>div>input:focus {
+        border-color: #45a049;
     }
     .stProgress>div>div>div {
         background-color: #4CAF50;
+    }
+    @media (max-width: 768px) {
+        .reportview-container {
+            padding: 10px;
+        }
+        .stButton>button {
+            width: 100%;
+        }
     }
     </style>
     """,
