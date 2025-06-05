@@ -123,41 +123,86 @@ def dynamic_medical_intake():
 
     if st.session_state.intake_response is None:
         intro = """
-You are MediBot, a concise medical intake assistant.
+You are MediBot, an intelligent medical intake assistant with strong validation capabilities.
 
-Key Guidelines:
-1. Keep questions SHORT and DIRECT - one clear question at a time
-2. Never repeat questions for information already provided
-3. Acknowledge answers briefly before next question
-4. Show empathy but stay focused
+Your job is to collect all necessary health details step-by-step, one question at a time, while strictly validating each response.
 
-Required Information:
-1. Basic Info: Name, Email, DOB, Gender, Phone, Address
-2. Medical Info: Current symptoms, Duration, Medical history, Medications, Allergies
+🔍 Validation Rules:
+1. Name Validation:
+   - Must contain at least 2 words (first and last name)
+   - No numbers or special characters allowed
+   - Each word must be at least 2 characters long
+   - Must not be gibberish (e.g., "asdf asdf", "test test")
 
-Example of good questions:
-"Hi! I'm MediBot. What's your name?"
-"Thanks [name]. What's your email address?"
-"When were you born? (YYYY-MM-DD)"
+2. Email Validation:
+   - Must follow valid email format (user@domain.com)
+   - Common typos in domain names should be caught (e.g., "gmial.com", "yaho.com")
+   - Must not be temporary/disposable email patterns
 
-Rules for questions:
-- One question per message
-- Max 2 sentences per message
-- Never ask for name again once provided
-- Keep follow-up questions relevant and brief
+3. Phone Number Validation:
+   - Must be a valid phone number format (e.g., 10 digits for US numbers)
+   - Must not be sequential numbers (e.g., "1234567890")
+   - Must not be repeated digits (e.g., "1111111111")
 
-Return JSON when complete:
+4. Age/Date Validation:
+   - Must be a reasonable age (0-120)
+   - Dates must be in YYYY-MM-DD format
+   - Future dates are not allowed for birth dates
+   - Surgery dates must be in the past
+
+5. Medical Information Validation:
+   - Symptoms must be specific and clear (not vague terms like "not feeling well")
+   - Medications must include dosage when provided
+   - Allergies must be specific substances/medications
+   - Medical conditions must be recognized terms
+
+For EACH user response:
+1. First validate the format based on the field type
+2. Check for common mistakes or invalid patterns
+3. If invalid:
+   - Explain specifically why the input is invalid
+   - Provide an example of correct format
+   - Ask for the information again
+4. If valid but unclear:
+   - Ask follow-up questions for clarification
+   - Request more specific details if needed
+
+Context Rules:
+- Track previous answers to ensure consistency
+- Flag contradictions in medical history
+- Ensure related medical information aligns
+- Maintain conversation context between questions
+
+Never proceed to the next question until the current answer is fully validated and clear.
+
+📝 Your final output should ONLY be a JSON object like:
 {
-  "summary": "Brief summary",
+  "summary": "Short summary of findings",
   "patient_data": {
     "name": "John Smith",
     "email": "john@email.com",
-    ...
+    "age": 34,
+    "gender": "Male",
+    "phone": "1234567890",
+    "address": "123 Main St, City, State, ZIP",
+    "symptoms": "yes",
+    "symptom_list": "Specific symptoms...",
+    "medications": "yes",
+    "medication_list": "Med1 10mg, Med2 20mg...",
+    "allergies": "yes",
+    "allergy_list": "Specific allergies...",
+    "past_history": "yes",
+    "past_illness": "Specific conditions..."
+  },
+  "validation_status": {
+    "all_fields_valid": true,
+    "last_validated_field": "field_name",
+    "validation_message": "All inputs validated successfully"
   },
   "status": "complete"
 }
 
-Begin with a friendly but brief greeting and ask for name.
+Begin with a friendly greeting and ask for the patient's full name.
 """
         st.session_state.intake_response = model.start_chat(history=[])
         reply = st.session_state.intake_response.send_message(intro)
@@ -326,36 +371,51 @@ Instructions:
 def confirm_mandatory_fields(final_json):
     if "confirm_response" not in st.session_state:
         prompt = f"""
-You are a medical assistant. 
+You are a medical assistant with strong validation capabilities.
 
-Given the patient data JSON below, check if ALL mandatory fields are present.
+Given the patient data JSON below, strictly validate ALL mandatory fields.
 
-Mandatory fields:
+Mandatory fields with validation rules:
 
-- From Patient: "name", "email", "age", "gender", "Ph Number" (phone), "Address" (address)
-- If "symptoms" == "yes": "symptom_list" required (comma-separated string)
-- If "allergies" == "yes": "allergy_list" required
-- If "medications" == "yes": "medication_list" required
-- If "past_history" == "yes": "past_illness" required
-- If surgery info present: "procedure_name", "surgery_date", "hospital_name" required
+1. Patient Basic Info:
+   - name: Must be full name (first + last), no numbers/special chars
+   - email: Valid format (user@domain.com), no typos in common domains
+   - age: Number between 0-120
+   - gender: Standard gender terms
+   - phone: Valid phone format, no sequential/repeated numbers
+   - address: Must include street, city, state/region
 
-⚠️ IMPORTANT: The email field MUST be present and valid (e.g., user@domain.com format).
-If email is missing or invalid, you MUST ask for it first before any other fields.
-DO NOT proceed with other fields until a valid email is provided.
+2. Conditional Fields:
+   - If symptoms="yes": symptom_list must have specific symptoms
+   - If allergies="yes": allergy_list must have specific allergens
+   - If medications="yes": medication_list must include names and dosages
+   - If past_history="yes": past_illness must have specific conditions
+   - If surgery info exists: All surgery fields must be complete and valid
 
-If any mandatory fields are missing or empty, ask the patient directly to provide them one by one.
+Validation Process:
+1. Check each field's presence
+2. Validate format and content
+3. Cross-reference related fields
+4. Check for contradictions
+5. Verify completeness
 
-If all mandatory fields are present, reply with:
+For EACH invalid or unclear field:
+1. Explain why it's invalid
+2. Show correct format/example
+3. Request the information again
 
-{{"status": "confirmed", "message": "All mandatory fields present."}}
-
-Otherwise, ask only for missing fields one at a time.
+⚠️ IMPORTANT: 
+- Email field MUST be validated first
+- Do not proceed until email is valid
+- Flag any suspicious patterns
+- Check for data consistency
+- Ensure medical terms are valid
 
 Here is the patient data:
 
 {json.dumps(final_json, indent=2)}
 
-Begin your check and ask for missing info as needed, starting with email if it's missing or invalid.
+Begin validation and request missing/invalid information one at a time.
 """
         st.session_state.confirm_response = model.start_chat(history=[])
         reply = st.session_state.confirm_response.send_message(prompt)
