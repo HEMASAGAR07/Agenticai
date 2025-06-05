@@ -10,7 +10,82 @@ import pymysql
 from inserting_JSON_to_DB import db_config,insert_data_from_mapped_json
 from booking import book_appointment_from_json
 
+# Custom styling
+st.set_page_config(
+    page_title="MediBot - Smart Medical Assistant",
+    page_icon="🏥",
+    layout="wide"
+)
 
+# Custom CSS
+st.markdown("""
+<style>
+    .main {
+        padding: 2rem;
+    }
+    .stButton>button {
+        background-color: #3498db;
+        color: white;
+        border-radius: 20px;
+        padding: 0.5rem 2rem;
+        border: none;
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        background-color: #2980b9;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .success-message {
+        padding: 1rem;
+        border-radius: 10px;
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+    }
+    .error-message {
+        padding: 1rem;
+        border-radius: 10px;
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+    }
+    .info-box {
+        background-color: #e3f2fd;
+        padding: 1.5rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        border-left: 5px solid #2196f3;
+    }
+    .step-header {
+        background: linear-gradient(90deg, #3498db, #2980b9);
+        color: white;
+        padding: 1rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+    }
+    .chat-message {
+        padding: 1rem;
+        border-radius: 15px;
+        margin: 0.5rem 0;
+        max-width: 80%;
+    }
+    .bot-message {
+        background-color: #f1f1f1;
+        margin-right: auto;
+    }
+    .user-message {
+        background-color: #e3f2fd;
+        margin-left: auto;
+    }
+    .input-container {
+        background-color: white;
+        padding: 1rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Load environment variables
 load_dotenv()
@@ -408,12 +483,30 @@ def migrate_existing_data(data):
 
 
 def main():
-    st.title("Medical Intake Assistant")
+    # Header with logo and title
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        st.markdown("# 🏥")
+    with col2:
+        st.markdown("""
+            <h1 style='color: #2c3e50;'>Medical Intake Assistant</h1>
+            <p style='color: #7f8c8d;'>Your AI-powered healthcare companion</p>
+        """, unsafe_allow_html=True)
 
-    # --- MANUAL OVERRIDE: Start from mapping step if file exists ---
+    # Progress bar
     if "step" not in st.session_state:
         st.session_state.step = "intake"
-    # --------------------------------------------------------------
+    
+    steps = ["intake", "followup", "specialist", "confirm", "mapping", "db_insert", "booking"]
+    current_step = steps.index(st.session_state.step) + 1
+    progress = current_step / len(steps)
+    
+    st.markdown(f"""
+        <div style='padding: 1rem; background-color: #f8f9fa; border-radius: 10px; margin-bottom: 2rem;'>
+            <p style='margin-bottom: 0.5rem;'>Progress: Step {current_step} of {len(steps)}</p>
+        </div>
+    """, unsafe_allow_html=True)
+    st.progress(progress)
 
     # Migrate any existing session data
     if "patient_data" in st.session_state:
@@ -422,30 +515,67 @@ def main():
         st.session_state.final_patient_json = migrate_existing_data(st.session_state.final_patient_json)
 
     if st.session_state.step == "intake":
-        st.header("Step 1: Patient Intake")
+        st.markdown("""
+            <div class='step-header'>
+                <h2>Step 1: Patient Intake</h2>
+                <p>Let's start by gathering your basic information</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
         patient_data, summary, done = dynamic_medical_intake()
         if done:
-            st.success("Patient intake completed.")
-            st.write("Summary:", summary)
+            st.markdown("""
+                <div class='success-message'>
+                    ✅ Patient intake completed successfully!
+                </div>
+            """, unsafe_allow_html=True)
+            st.markdown(f"""
+                <div class='info-box'>
+                    <h4>Summary</h4>
+                    <p>{summary}</p>
+                </div>
+            """, unsafe_allow_html=True)
             st.session_state.patient_data = patient_data
             st.session_state.summary = summary
             st.session_state.step = "followup"
             st.rerun()
 
     elif st.session_state.step == "followup":
-        st.header("Step 2: Follow-up Questions for Missing Info")
+        st.markdown("""
+            <div class='step-header'>
+                <h2>Step 2: Follow-up Questions</h2>
+                <p>Let's get some additional details to better understand your needs</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
         patient_data = st.session_state.get("patient_data", {})
         updated_data, notes, done = post_analysis_and_followup(patient_data)
         if done:
-            st.success("Follow-up questions complete.")
-            st.write("Notes:", notes)
+            st.markdown("""
+                <div class='success-message'>
+                    ✅ Follow-up questions completed!
+                </div>
+            """, unsafe_allow_html=True)
+            if notes:
+                st.markdown(f"""
+                    <div class='info-box'>
+                        <h4>Additional Notes</h4>
+                        <p>{notes}</p>
+                    </div>
+                """, unsafe_allow_html=True)
             st.session_state.patient_data = updated_data
             st.session_state.followup_notes = notes
             st.session_state.step = "specialist"
             st.rerun()
 
     elif st.session_state.step == "specialist":
-        st.header("Step 3: Specialist Recommendation")
+        st.markdown("""
+            <div class='step-header'>
+                <h2>Step 3: Specialist Recommendation</h2>
+                <p>Let's find the right specialist for you</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
         patient_data = st.session_state.get("patient_data", {})
         specialists, rationale = recommend_specialist(patient_data)
         st.write("Recommended Specialists:", specialists)
@@ -456,7 +586,13 @@ def main():
         st.rerun()
 
     elif st.session_state.step == "confirm":
-        st.header("Step 4: Confirm Mandatory Fields")
+        st.markdown("""
+            <div class='step-header'>
+                <h2>Step 4: Confirm Mandatory Fields</h2>
+                <p>Let's ensure all your information is correct</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
         # Build the final JSON in your required format
         patient_data = st.session_state.get("patient_data", {})
         summary = st.session_state.get("summary", "")
@@ -473,8 +609,17 @@ def main():
         }
         updated_data, confirmed, message = confirm_mandatory_fields(final_json)
         if confirmed:
-            st.success(message)
-            st.write("Final Patient Data:", updated_data)
+            st.markdown("""
+                <div class='success-message'>
+                    ✅ Mandatory fields confirmed!
+                </div>
+            """, unsafe_allow_html=True)
+            st.markdown(f"""
+                <div class='info-box'>
+                    <h4>Final Patient Data</h4>
+                    <p>{json.dumps(updated_data, indent=2)}</p>
+                </div>
+            """, unsafe_allow_html=True)
             st.session_state.final_patient_json = updated_data
             with open("final_patient_summary.json", "w") as f:
                 json.dump(updated_data, f, indent=2)
@@ -484,7 +629,13 @@ def main():
             st.info("Please provide the missing information.")
 
     elif st.session_state.step == "mapping":
-        st.header("Step 5: Map Collected Info to DB Schema")
+        st.markdown("""
+            <div class='step-header'>
+                <h2>Step 5: Map Collected Info to DB Schema</h2>
+                <p>Let's ensure your data is correctly mapped to our database</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
         # Always use the latest confirmed data
         patient_json = st.session_state.get("final_patient_json", {})
         if patient_json:
@@ -515,7 +666,13 @@ def main():
             st.warning("No confirmed patient JSON data available yet.")
 
     elif st.session_state.step == "db_insert":
-        st.header("Step 6: Review and Insert Data into Database")
+        st.markdown("""
+            <div class='step-header'>
+                <h2>Step 6: Review and Insert Data into Database</h2>
+                <p>Let's ensure your data is correctly inserted into our database</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
         mapped_file = "mapped_output.json"
         if os.path.exists(mapped_file):
             try:
@@ -600,7 +757,12 @@ def main():
             st.error("Mapped output file not found. Please complete mapping step first.")
 
     elif st.session_state.step == "booking":
-        st.header("Step 7: Book Appointment with Recommended Specialist")
+        st.markdown("""
+            <div class='step-header'>
+                <h2>Step 7: Book Appointment with Recommended Specialist</h2>
+                <p>Let's schedule your appointment with the recommended specialist</p>
+            </div>
+        """, unsafe_allow_html=True)
         
         # Verify that we came from a successful database insertion
         if not st.session_state.get("db_insert_success", False):
@@ -670,8 +832,12 @@ def main():
             st.error(f"❌ Unexpected error: {str(e)}")
 
     else:  # done step
-        st.header("All steps completed!")
-        st.success("Thank you for using the Medical Intake Assistant!")
+        st.markdown("""
+            <div class='step-header'>
+                <h2>All steps completed!</h2>
+                <p>Thank you for using the Medical Intake Assistant!</p>
+            </div>
+        """, unsafe_allow_html=True)
         
         # Add a restart button
         if st.button("Start New Intake"):
