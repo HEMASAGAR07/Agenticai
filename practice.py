@@ -121,7 +121,7 @@ You are an intelligent medical intake assistant.
 Your job is to collect necessary health details step-by-step, ensuring each answer is valid.
 
 🔍 Guidelines:
-- Ask concise questions, one at a time.
+- Ask clear, concise questions, one at a time.
 - Accept valid answers and proceed to the next question.
 - Avoid fake or placeholder data.
 - Skip irrelevant questions.
@@ -152,7 +152,7 @@ Your job is to collect necessary health details step-by-step, ensuring each answ
   "status": "complete"
 }
 
-Begin by asking the first question. Keep questions short, avoid repetition, and acknowledge valid answers.
+Begin by asking the first question. Keep questions short, acknowledge valid answers, and avoid repetition.
 """
         st.session_state.intake_response = model.start_chat(history=[])
         reply = st.session_state.intake_response.send_message(intro)
