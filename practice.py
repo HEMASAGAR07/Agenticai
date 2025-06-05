@@ -9,8 +9,53 @@ import subprocess
 import pymysql
 from inserting_JSON_to_DB import db_config,insert_data_from_mapped_json
 from booking import book_appointment_from_json
+import streamlit.components.v1 as components
 
+# Import additional Streamlit components for UI enhancement
+import streamlit.components.v1 as components
 
+# Enhance the UI with a custom theme and layout
+st.set_page_config(
+    page_title="MediBot - Medical Intake Assistant",
+    page_icon="🩺",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# Add a custom CSS style for better UI
+st.markdown(
+    """
+    <style>
+    .reportview-container {
+        background: #f0f2f6;
+    }
+    .sidebar .sidebar-content {
+        background: #e0e4e8;
+    }
+    .stButton>button {
+        background-color: #4CAF50;
+        color: white;
+    }
+    .stTextInput>div>div>input {
+        border: 1px solid #4CAF50;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# Add a header with an icon
+st.title("MediBot - Your Medical Intake Assistant 🩺")
+
+# Add a progress bar to indicate the intake process
+progress = st.progress(0)
+
+# Update progress bar based on session state
+if "intake_progress" not in st.session_state:
+    st.session_state.intake_progress = 0
+
+st.session_state.intake_progress += 10  # Increment progress
+progress.progress(st.session_state.intake_progress)
 
 # Load environment variables
 load_dotenv()
@@ -58,7 +103,7 @@ Your job is to collect necessary health details through a natural, conversationa
 5. Validate responses naturally
 
 For example, instead of just asking "What's your name?", say something like:
-"Hi there! I'm MediBot, and I'll be helping you today. Could you please tell me your name?"
+"Hi there! I'm MediBot, and I'll be helping you today. Could you please tell me your full name?"
 
 ⚠️ Important behaviors:
 - Keep the conversation natural and flowing
@@ -107,7 +152,7 @@ When complete, return a JSON like:
   "status": "complete"
 }
 
-Begin with a friendly greeting and ask for the patient's name in a conversational way.
+Begin with a friendly greeting and ask for the patient's full name in a conversational way.
 """
         st.session_state.intake_response = model.start_chat(history=[])
         reply = st.session_state.intake_response.send_message(intro)
@@ -132,10 +177,32 @@ Begin with a friendly greeting and ask for the patient's name in a conversationa
         context += f"\nCurrent patient data: {json.dumps(st.session_state.patient_data, indent=2)}\n"
         context += "\nContinue the conversation naturally while gathering any missing information."
         
-        reply = st.session_state.intake_response.send_message(
-            context + "\n\nPatient: " + user_input
-        )
-        st.session_state.intake_history.append(("bot", reply.text.strip()))
+        # Prioritize essential questions
+        essential_questions = ["name", "email", "dob", "gender", "phone", "address"]
+        missing_essentials = [q for q in essential_questions if not st.session_state.patient_data.get(q)]
+        
+        if missing_essentials:
+            # Ask only essential questions
+            prompt = f"""
+Please provide the following essential information: {', '.join(missing_essentials)}.
+
+Remember to:
+1. Stay conversational and friendly
+2. Acknowledge previous responses
+3. Ask for missing information naturally
+4. Validate the information received
+
+Previous conversation:
+{context}
+"""
+            reply = st.session_state.intake_response.send_message(prompt)
+            st.session_state.intake_history.append(("bot", reply.text.strip()))
+        else:
+            # Continue with follow-up questions only if essential information is complete
+            reply = st.session_state.intake_response.send_message(
+                context + "\n\nPatient: " + user_input
+            )
+            st.session_state.intake_history.append(("bot", reply.text.strip()))
 
         # Check if final JSON with status complete
         final_output = extract_json(reply.text)
@@ -211,7 +278,7 @@ Begin your focused analysis now.
     else:
         st.write("No follow-up history available.")
 
-    user_input = st.text_input("Your answer here:", key="followup_input")
+    user_input = st.text_input("Your answer here:", key="followup_input", help="Please provide your response here.")
     submit = st.button("Submit follow-up answer", key="followup_submit")
 
     if submit and user_input:
@@ -697,6 +764,14 @@ def main():
                 del st.session_state[key]
             st.session_state.step = "intake"
             st.rerun()
+
+    # Add a footer with contact information
+    st.markdown("""
+    ---
+    **Contact Us:**
+    - Email: support@medibot.com
+    - Phone: +1-800-555-0199
+    """)
 
 if __name__ == "__main__":
     main()
