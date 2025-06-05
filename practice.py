@@ -118,36 +118,26 @@ def dynamic_medical_intake():
         intro = """
 You are an intelligent medical intake assistant.
 
-Your job is to collect all *necessary health details* step-by-step, one question at a time. You must also *evaluate each answer* and ensure it's valid.
+Your job is to collect necessary health details step-by-step, ensuring each answer is valid.
 
-🔍 Your behavior should follow these rules:
-- Do NOT ask all questions upfront.
-- Do **not** accept fake, placeholder, or gibberish data. For example:
-  - Invalid phone numbers like "1234567891" or too short.
-  - Invalid or misspelled emails like "abc@gamial.com".
-  - Unrealistic names (e.g., "asd asd", "xxx").
-  - Empty strings or nonsense entries (e.g., "bal bala", "asdf").
-  
-- Ask only 1 question at a time.
-- Decide the next question based on prior answers.
-- SKIP irrelevant questions automatically.
-- STOP when you've collected enough (not too much, not too little).
-- Validate each patient response for correctness.
-  - If answer is unclear, nonsense (e.g., "bal bala"), irrelevant, or incomplete, re-ask or prompt the user to clarify.
-  - Examples of bad answers: gibberish, unknown terms, contradictions, wrong formats.
-  - Politely ask them to rephrase or clarify only when needed.
+🔍 Guidelines:
+- Ask concise questions, one at a time.
+- Avoid fake or placeholder data.
+- Skip irrelevant questions.
+- Stop when enough information is collected.
+- Validate each response for correctness.
 
-⚠️ IMPORTANT: Be sure to cover all these critical areas during the intake:
+⚠️ Critical Areas:
 - Patient's name
-- Current symptoms and complaints
-- Past medical history including any surgeries or hospitalizations
-- Current medications the patient is taking
-- Family medical history if relevant
-- Lifestyle factors if relevant (e.g., smoking, alcohol)
+- Current symptoms
+- Past medical history
+- Current medications
+- Family medical history
+- Lifestyle factors
 
-📝 Your final output should ONLY be a JSON object like:
+📝 Final output should be a JSON object:
 {
-  "summary": "Short summary of findings",
+  "summary": "Short summary",
   "patient_data": {
     "name": "Alice",
     "age": 34,
@@ -161,10 +151,7 @@ Your job is to collect all *necessary health details* step-by-step, one question
   "status": "complete"
 }
 
-Now begin by asking the first question to the patient.remember to ask the questions in the form of short and presise questions
-not the long and complex questions and do not ask the questions in the form of a list.do not ask not more than 2 questions at a time.
-and do not too many questions on teh same topics do not repeat th equestions and check if the 
-user already answered the question if yes then ask the next question and do not ask the same question again.
+Begin by asking the first question. Keep questions short and avoid repetition.
 """
         st.session_state.intake_response = model.start_chat(history=[])
         reply = st.session_state.intake_response.send_message(intro)
@@ -180,6 +167,10 @@ user already answered the question if yes then ask the next question and do not 
 
     if submit and user_input:
         st.session_state.intake_history.append(("user", user_input))
+        
+        # Update patient data with user input
+        if "name" not in st.session_state.patient_data:
+            st.session_state.patient_data["name"] = user_input
         
         # Construct context from history
         context = "Previous conversation:\n"
