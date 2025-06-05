@@ -169,9 +169,9 @@ Begin by asking the first question. Keep questions short, avoid repetition, and 
     if submit and user_input:
         st.session_state.intake_history.append(("user", user_input))
         
-        # Update patient data with user input
-        if "name" not in st.session_state.patient_data:
-            st.session_state.patient_data["name"] = user_input
+        # Validate and update patient data with user input
+        if "name" not in st.session_state.patient_data and user_input.strip():
+            st.session_state.patient_data["name"] = user_input.strip()
         
         # Construct context from history
         context = "Previous conversation:\n"
