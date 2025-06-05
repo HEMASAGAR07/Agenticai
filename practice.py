@@ -349,6 +349,48 @@ Begin by asking for the patient's full name.
         
         if st.button("✅ Confirm Details"):
             st.session_state.data_confirmed = True
+            # Start health-specific questions immediately
+            health_prompt = f"""
+You are MediBot, a medical intake assistant. The patient's details have been confirmed:
+{json.dumps(st.session_state.patient_data, indent=2)}
+
+FOCUS ONLY ON HEALTH ASSESSMENT:
+1. Current Symptoms:
+   - Ask about specific symptoms they're experiencing
+   - Get severity (mild/moderate/severe)
+   - Get duration (how long they've had each symptom)
+   - Note any patterns or triggers
+
+2. If they mention symptoms, follow up with:
+   - Related symptoms they might have missed
+   - What makes it better or worse
+   - Impact on daily activities
+   - Previous occurrences
+
+3. After symptoms, ask about:
+   - Any new medications since last record
+   - Any new allergies
+   - Recent medical events
+
+Rules:
+- Start IMMEDIATELY with "What symptoms or health concerns bring you in today?"
+- Ask ONE question at a time
+- Don't ask about basic info (we already have it)
+- Focus on NEW health information only
+- Be direct and medical-focused
+
+Return this JSON when health intake is complete:
+{{
+  "patient_data": {{
+    // Include all previous data plus new health info
+  }},
+  "summary": "Summary of new health information",
+  "status": "complete"
+}}
+"""
+            st.session_state.intake_response = model.start_chat(history=[])
+            reply = st.session_state.intake_response.send_message(health_prompt)
+            st.session_state.intake_history.append(("bot", reply.text.strip()))
             st.rerun()
         
         if st.button("❌ Details are Incorrect"):
@@ -400,11 +442,6 @@ Begin by asking for the patient's full name.
                 
                 st.rerun()
         else:
-            # Only proceed if data is confirmed
-            if not st.session_state.data_confirmed:
-                st.warning("Please confirm your information first.")
-                return {}, "", False
-                
             # Continue with health-specific questions
             reply = st.session_state.intake_response.send_message(user_input)
             st.session_state.intake_history.append(("bot", reply.text.strip()))
