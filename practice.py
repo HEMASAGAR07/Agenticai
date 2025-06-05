@@ -199,6 +199,37 @@ def is_valid_name(name):
     
     return True, name
 
+def is_valid_phone(phone):
+    """Validate a phone number with reasonable rules"""
+    if not phone:
+        return False, "Phone number cannot be empty"
+    
+    # Remove all non-digit characters for standardization
+    digits = ''.join(filter(str.isdigit, phone))
+    
+    # Basic validation rules
+    if len(digits) < 10 or len(digits) > 15:
+        return False, "Phone number must be between 10 and 15 digits"
+    
+    # Allow common prefixes for Indian numbers
+    if digits.startswith('91'):
+        if len(digits) != 12:  # 91 + 10 digits
+            return False, "Indian phone numbers should be 10 digits after country code"
+    
+    # Basic format check - don't be too strict about repeated digits
+    # Only check for obvious test numbers
+    obvious_test = {'1234567890', '0987654321', '1111111111', '0000000000'}
+    if digits[-10:] in obvious_test:
+        return False, "This appears to be a test phone number"
+    
+    # Format the number nicely for display
+    if digits.startswith('91'):
+        formatted = f"+{digits[:2]}-{digits[2:7]}-{digits[7:]}"
+    else:
+        formatted = f"+{digits}"
+    
+    return True, formatted
+
 def dynamic_medical_intake():
     # Using session state to store conversation & patient_data across reruns
     if "intake_history" not in st.session_state:
@@ -213,6 +244,8 @@ def dynamic_medical_intake():
         st.session_state.db_data_retrieved = False
     if "current_field" not in st.session_state:
         st.session_state.current_field = "name"
+    if "data_confirmed" not in st.session_state:
+        st.session_state.data_confirmed = False
 
     if st.session_state.intake_response is None:
         intro = """
@@ -225,11 +258,10 @@ FIRST PHASE - Collect only name and email:
    - Name: Must be full name (first and last name), letters, spaces, hyphens, and apostrophes only
    - Email: Must be valid format, no typos in common domains
 
-Do not ask any other questions until these are validated.
-If a name is invalid, explain exactly why and show the correct format.
-Example valid names: "John Smith", "Mary Jane Wilson", "Jean-Pierre Dubois", "O'Connor James"
+Do not ask for any other personal information (no phone, address, age, gender, etc).
+These will be retrieved from our database.
 
-Return this JSON when both are valid:
+Return this JSON when both name and email are valid:
 {
   "patient_data": {
     "name": "Full Name",
@@ -247,6 +279,36 @@ Begin by asking for the patient's full name.
         reply = st.session_state.intake_response
 
     st.write(f" {st.session_state.intake_history[-1][1]}")
+
+    # If we have retrieved data but not confirmed it yet, show confirmation UI
+    if st.session_state.db_data_retrieved and not st.session_state.data_confirmed:
+        st.markdown("### Your Information")
+        st.markdown("Please verify if these details are correct:")
+        
+        patient_data = st.session_state.patient_data
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Personal Details:**")
+            st.write(f"📝 Name: {patient_data.get('name', '')}")
+            st.write(f"📧 Email: {patient_data.get('email', '')}")
+            st.write(f"📱 Phone: {patient_data.get('phone', '')}")
+            
+        with col2:
+            st.markdown("**Additional Information:**")
+            st.write(f"🎂 Date of Birth: {patient_data.get('dob', '')}")
+            st.write(f"⚧ Gender: {patient_data.get('gender', '')}")
+            st.write(f"📍 Address: {patient_data.get('address', '')}")
+        
+        if st.button("✅ Confirm Details"):
+            st.session_state.data_confirmed = True
+            st.rerun()
+        
+        if st.button("❌ Details are Incorrect"):
+            st.error("Please contact support to update your information.")
+            return {}, "", False
+        
+        return {}, "", False
 
     user_input = st.text_input("Your answer:", key="intake_input", 
                               placeholder="Type your response here...")
@@ -284,71 +346,18 @@ Begin by asking for the patient's full name.
                         # Merge DB data with collected data
                         st.session_state.patient_data.update(db_user_data)
                         st.session_state.db_data_retrieved = True
-                        
-                        # Start health-specific questions
-                        health_prompt = f"""
-Now focus ONLY on health-specific questions. The patient's general information has been retrieved:
-{json.dumps(st.session_state.patient_data, indent=2)}
-
-Ask focused medical questions about:
-1. Current symptoms and their duration
-2. Any new medications since last visit
-3. Any new allergies
-4. Recent medical events or concerns
-
-Rules:
-- Don't ask about information we already have
-- Focus on changes since their last record
-- Ask one question at a time
-- Validate medical terms and descriptions
-- If they mention new conditions, ask for details
-
-Return this JSON when health intake is complete:
-{{
-  "patient_data": {{
-    // Include all previous data plus new health info
-  }},
-  "summary": "Summary of new health information",
-  "status": "complete"
-}}
-
-Begin with asking about their current symptoms or health concerns.
-"""
-                        st.session_state.intake_response = model.start_chat(history=[])
-                        reply = st.session_state.intake_response.send_message(health_prompt)
-                        st.session_state.intake_history.append(("bot", reply.text.strip()))
+                        st.rerun()  # Show the confirmation UI
                     else:
-                        # If no DB data, proceed with new patient questions
-                        new_patient_prompt = f"""
-New patient detected. Focus on collecting essential health information:
-1. Current symptoms and their duration
-2. Existing medical conditions
-3. Current medications
-4. Known allergies
-5. Recent medical events
-
-Rules:
-- Ask one question at a time
-- Validate medical terms and descriptions
-- Get specific details for each response
-- Ensure information is clear and complete
-
-Return this JSON when health intake is complete:
-{{
-  "patient_data": {{
-    // Include all collected data
-  }},
-  "summary": "Summary of health information",
-  "status": "complete"
-}}
-
-Begin with asking about their current symptoms or health concerns.
-"""
-                        st.session_state.intake_response = model.start_chat(history=[])
-                        reply = st.session_state.intake_response.send_message(new_patient_prompt)
-                        st.session_state.intake_history.append(("bot", reply.text.strip()))
+                        st.error("No existing records found. Please contact support to update your information.")
+                        return {}, "", False
+                
                 st.rerun()
         else:
+            # Only proceed if data is confirmed
+            if not st.session_state.data_confirmed:
+                st.warning("Please confirm your information first.")
+                return {}, "", False
+                
             # Continue with health-specific questions
             reply = st.session_state.intake_response.send_message(user_input)
             st.session_state.intake_history.append(("bot", reply.text.strip()))
@@ -470,7 +479,7 @@ Mandatory fields with validation rules:
    - email: Valid format (user@domain.com), no typos in common domains
    - age: Number between 0-120
    - gender: Standard gender terms
-   - phone: Valid phone format, no sequential/repeated numbers
+   - phone: Valid phone format with country code (e.g., +91-XXXXX-XXXXX)
    - address: Must include street, city, state/region
 
 2. Conditional Fields:
@@ -487,17 +496,11 @@ Validation Process:
 4. Check for contradictions
 5. Verify completeness
 
-For EACH invalid or unclear field:
-1. Explain why it's invalid
-2. Show correct format/example
-3. Request the information again
-
-⚠️ IMPORTANT: 
-- Email field MUST be validated first
-- Do not proceed until email is valid
-- Flag any suspicious patterns
-- Check for data consistency
-- Ensure medical terms are valid
+For phone numbers:
+- Accept numbers with or without country code
+- Allow common formats (+91-XXXXX-XXXXX or XXXXXXXXXX)
+- Basic validation only - focus on length and obvious test numbers
+- Don't be too strict about repeated digits
 
 Here is the patient data:
 
@@ -520,19 +523,19 @@ Begin validation and request missing/invalid information one at a time.
 
     if submit and user_input:
         st.session_state.confirm_history.append(("user", user_input))
-        # Heuristic to detect requested field from last bot message
         last_bot_msg = st.session_state.confirm_history[-1][1].lower()
         u_input = user_input.strip()
         d = st.session_state.updated_final_data.get("patient_data", {})
 
-        # Email handling with validation
-        if "email" in last_bot_msg:
-            if "@" in u_input and "." in u_input:  # Basic email validation
-                d["email"] = u_input
-                st.success(f"Email saved: {u_input}")
+        # Phone number handling with new validation
+        if "phone" in last_bot_msg:
+            is_valid, formatted_phone = is_valid_phone(u_input)
+            if is_valid:
+                d["phone"] = formatted_phone
+                st.success(f"Phone number saved: {formatted_phone}")
             else:
-                st.error("Please provide a valid email address (e.g., user@domain.com)")
-                return st.session_state.updated_final_data, False, "Invalid email format"
+                st.error(f"Invalid phone number: {formatted_phone}")
+                return st.session_state.updated_final_data, False, "Invalid phone format"
         elif "name" in last_bot_msg:
             d["name"] = u_input
         elif "age" in last_bot_msg:
@@ -542,8 +545,6 @@ Begin validation and request missing/invalid information one at a time.
                 d["age"] = u_input
         elif "gender" in last_bot_msg:
             d["gender"] = u_input
-        elif "phone" in last_bot_msg or "ph number" in last_bot_msg:
-            d["phone"] = u_input
         elif "address" in last_bot_msg:
             d["address"] = u_input
             # Move from notes to address if it was stored in notes
