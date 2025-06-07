@@ -7,10 +7,15 @@ import mapping_collectedinfo_to_schema  # <-- Add this import at the top
 import mysql.connector
 import subprocess
 import pymysql
-from inserting_JSON_to_DB import db_config,insert_data_from_mapped_json, save_operation_state, handle_table_operation, get_last_update_timestamp
+from inserting_JSON_to_DB import db_config, insert_data_from_mapped_json, save_operation_state, handle_table_operation, get_last_update_timestamp
 from booking import book_appointment_from_json
 import uuid
 import datetime
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Custom styling
 st.set_page_config(
@@ -18,6 +23,44 @@ st.set_page_config(
     page_icon="🏥",
     layout="wide"
 )
+
+# Initialize session state
+if 'initialized' not in st.session_state:
+    st.session_state.initialized = True
+    st.session_state.step = "intake"
+    st.session_state.intake_history = []
+    st.session_state.intake_response = None
+    st.session_state.patient_data = {}
+    st.session_state.initial_collection_done = False
+    st.session_state.db_data_retrieved = False
+    st.session_state.current_field = "name"
+    st.session_state.data_confirmed = False
+    st.session_state.in_health_assessment = False
+    st.session_state.db_insert_success = False
+
+# Load environment variables
+load_dotenv()
+api_key = os.getenv("GOOGLE_API_KEY")
+if not api_key:
+    st.error("Missing API key. Please set GOOGLE_API_KEY in .env file")
+    st.stop()
+
+try:
+    # Initialize Gemini model
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+except Exception as e:
+    st.error(f"Failed to initialize Gemini model: {str(e)}")
+    st.stop()
+
+# Verify database configuration
+try:
+    conn = pymysql.connect(**db_config)
+    conn.close()
+except Exception as e:
+    st.error(f"Failed to connect to database: {str(e)}")
+    logger.error(f"Database connection error: {str(e)}")
+    st.stop()
 
 # Custom CSS
 st.markdown("""
@@ -88,17 +131,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-# Load environment variables
-load_dotenv()
-api_key = os.getenv("GOOGLE_API_KEY")
-if not api_key:
-    raise ValueError("Missing API key. Set GOOGLE_API_KEY in .env")
-
-# Initialize Gemini model
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel("gemini-1.5-flash")
-
 
 # Extract JSON from model response
 def extract_json(text):
@@ -294,40 +326,41 @@ def serialize_patient_data(data):
     return serialized
 
 def dynamic_medical_intake():
-    # Using session state to store conversation & patient_data across reruns
-    if "intake_history" not in st.session_state:
-        st.session_state.intake_history = []
-    if "intake_response" not in st.session_state:
-        st.session_state.intake_response = None
-    if "patient_data" not in st.session_state:
-        st.session_state.patient_data = {}
-    if "initial_collection_done" not in st.session_state:
-        st.session_state.initial_collection_done = False
-    if "db_data_retrieved" not in st.session_state:
-        st.session_state.db_data_retrieved = False
-    if "current_field" not in st.session_state:
-        st.session_state.current_field = "name"
-    if "data_confirmed" not in st.session_state:
-        st.session_state.data_confirmed = False
-    if "in_health_assessment" not in st.session_state:
-        st.session_state.in_health_assessment = False
+    try:
+        # Using session state to store conversation & patient_data across reruns
+        if "intake_history" not in st.session_state:
+            st.session_state.intake_history = []
+        if "intake_response" not in st.session_state:
+            st.session_state.intake_response = None
+        if "patient_data" not in st.session_state:
+            st.session_state.patient_data = {}
+        if "initial_collection_done" not in st.session_state:
+            st.session_state.initial_collection_done = False
+        if "db_data_retrieved" not in st.session_state:
+            st.session_state.db_data_retrieved = False
+        if "current_field" not in st.session_state:
+            st.session_state.current_field = "name"
+        if "data_confirmed" not in st.session_state:
+            st.session_state.data_confirmed = False
+        if "in_health_assessment" not in st.session_state:
+            st.session_state.in_health_assessment = False
 
-    # If we're in health assessment, skip the initial collection logic
-    if st.session_state.in_health_assessment:
-        if st.session_state.intake_history:
-            st.write(f"{st.session_state.intake_history[-1][1]}")
+        # If we're in health assessment, handle symptom collection
+        if st.session_state.in_health_assessment:
+            if st.session_state.intake_history:
+                st.write(f"{st.session_state.intake_history[-1][1]}")
 
-        user_input = st.text_input("Your answer:", key="intake_input", 
-                                  placeholder="Type your response here...")
-        submit = st.button("Continue", key="intake_submit")
+            user_input = st.text_input("Your answer:", key="intake_input", 
+                                    placeholder="Type your response here...")
+            submit = st.button("Continue", key="intake_submit")
 
-        if submit and user_input:
-            st.session_state.intake_history.append(("user", user_input))
-            
-            # Send to symptom analysis with serialized data
-            try:
-                serialized_data = serialize_patient_data(st.session_state.patient_data)
-                analysis_prompt = f"""
+            if submit and user_input:
+                st.session_state.intake_history.append(("user", user_input))
+                
+                try:
+                    # Serialize and analyze symptoms
+                    serialized_data = serialize_patient_data(st.session_state.patient_data)
+                    analysis_prompt = f"""
 You are a medical symptom analysis system. Analyze the following patient information and symptoms:
 
 Patient Information:
@@ -348,58 +381,61 @@ Provide a structured analysis in JSON format:
 
 Focus on medical analysis only. Do not include conversational elements or goodbyes.
 """
-                reply = st.session_state.intake_response.send_message(analysis_prompt)
-                
-                try:
-                    analysis_result = extract_json(reply.text)
-                    if analysis_result and analysis_result.get("status") == "complete":
-                        # Prepare final output with analysis
-                        final_output = {
-                            "patient_data": serialized_data,
-                            "symptom_analysis": analysis_result,
-                            "status": "complete"
-                        }
-                        
-                        # Save for mapping
-                        st.session_state.final_patient_json = final_output
-                        
-                        # Display analysis results
-                        st.success("✅ Symptom Analysis Complete")
-                        
-                        # Map to database schema
-                        try:
-                            mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_output)
-                            with open("mapped_output.json", "w") as f:
-                                json.dump(mapped_result, f, indent=2)
-                            st.session_state.mapped_patient_data = mapped_result
-                            st.session_state.step = "db_insert"
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Mapping failed: {str(e)}")
-                        
-                        return serialized_data, "", True
-                    else:
-                        # If analysis is not complete, ask a follow-up question about symptoms
-                        followup_prompt = """
+                    reply = st.session_state.intake_response.send_message(analysis_prompt)
+                    
+                    try:
+                        analysis_result = extract_json(reply.text)
+                        if analysis_result and analysis_result.get("status") == "complete":
+                            # Prepare final output with analysis
+                            final_output = {
+                                "patient_data": serialized_data,
+                                "symptom_analysis": analysis_result,
+                                "status": "complete"
+                            }
+                            
+                            # Save for mapping
+                            st.session_state.final_patient_json = final_output
+                            
+                            # Display analysis results
+                            st.success("✅ Symptom Analysis Complete")
+                            
+                            try:
+                                # Map to database schema
+                                mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_output)
+                                with open("mapped_output.json", "w") as f:
+                                    json.dump(mapped_result, f, indent=2)
+                                st.session_state.mapped_patient_data = mapped_result
+                                st.session_state.step = "db_insert"
+                                st.rerun()
+                                return serialized_data, "", True
+                            except Exception as e:
+                                logger.error(f"Mapping error: {str(e)}")
+                                st.error(f"Error during data mapping: {str(e)}")
+                                return {}, "", False
+                        else:
+                            # If analysis is not complete, ask a follow-up question
+                            followup_prompt = """
 Based on the patient's response, ask ONE specific follow-up question about their symptoms.
 Focus on: severity, duration, frequency, or related symptoms.
 Keep the question clear and direct.
 """
-                        followup = st.session_state.intake_response.send_message(followup_prompt)
-                        st.session_state.intake_history.append(("bot", followup.text.strip()))
-                        st.rerun()
+                            followup = st.session_state.intake_response.send_message(followup_prompt)
+                            st.session_state.intake_history.append(("bot", followup.text.strip()))
+                            st.rerun()
+                    except Exception as e:
+                        logger.error(f"Analysis error: {str(e)}")
+                        st.error(f"Error during symptom analysis: {str(e)}")
+                        return {}, "", False
                 except Exception as e:
-                    st.error(f"Error in symptom analysis: {str(e)}")
+                    logger.error(f"Serialization error: {str(e)}")
+                    st.error(f"Error preparing data: {str(e)}")
                     return {}, "", False
-            except Exception as e:
-                st.error(f"Error serializing patient data: {str(e)}")
-                return {}, "", False
-                
-        return {}, "", False
+                    
+            return {}, "", False
 
-    # Initial collection logic
-    if st.session_state.intake_response is None:
-        intro = """
+        # Initial collection logic for name and email
+        if st.session_state.intake_response is None:
+            intro = """
 You are MediBot, a medical intake assistant.
 
 Ask for name FIRST:
@@ -408,79 +444,79 @@ Ask for name FIRST:
 - After valid name, ask for email
 - Keep it simple and direct
 """
-        st.session_state.intake_response = model.start_chat(history=[])
-        reply = st.session_state.intake_response.send_message(intro)
-        st.session_state.intake_history.append(("bot", "Please enter your full name:"))
-    else:
-        reply = st.session_state.intake_response
+            st.session_state.intake_response = model.start_chat(history=[])
+            reply = st.session_state.intake_response.send_message(intro)
+            st.session_state.intake_history.append(("bot", "Please enter your full name:"))
+        else:
+            reply = st.session_state.intake_response
 
-    # If we have retrieved data but not confirmed it yet, show confirmation UI
-    if st.session_state.db_data_retrieved and not st.session_state.data_confirmed:
-        st.markdown("### Your Information")
-        st.markdown("Please verify if these details are correct:")
-        
-        patient_data = st.session_state.patient_data
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Personal Details:**")
-            st.write(f"📝 Name: {patient_data.get('full_name', '')}")
-            st.write(f"📧 Email: {patient_data.get('email', '')}")
-            st.write(f"📱 Phone: {patient_data.get('phone', '')}")
+        # Show confirmation UI for existing data
+        if st.session_state.db_data_retrieved and not st.session_state.data_confirmed:
+            st.markdown("### Your Information")
+            st.markdown("Please verify if these details are correct:")
             
-        with col2:
-            st.markdown("**Additional Information:**")
-            st.write(f"🎂 Date of Birth: {patient_data.get('DOB', '')}")
-            st.write(f"⚧ Gender: {patient_data.get('gender', '')}")
-            st.write(f"📍 Address: {patient_data.get('address', '')}")
-
-        # Show medical history if available
-        if any(key in patient_data for key in ['previous_symptoms', 'previous_medications', 'previous_allergies', 'previous_surgeries']):
-            st.markdown("### Previous Medical History")
-            if patient_data.get('previous_symptoms'):
-                st.write("🤒 Previous Symptoms:", patient_data['previous_symptoms'])
-            if patient_data.get('previous_medications'):
-                st.write("💊 Previous Medications:", patient_data['previous_medications'])
-            if patient_data.get('previous_allergies'):
-                st.write("⚠️ Known Allergies:", patient_data['previous_allergies'])
-            if patient_data.get('previous_surgeries'):
-                st.write("🏥 Previous Surgeries:", patient_data['previous_surgeries'])
-        
-        # For new users, show input fields for missing information
-        if not patient_data.get('phone'):
-            phone = st.text_input("Phone Number:", key="phone_input")
-            if phone:
-                patient_data['phone'] = phone
-        
-        if not patient_data.get('DOB'):
-            dob = st.date_input("Date of Birth:", key="dob_input")
-            if dob:
-                patient_data['DOB'] = dob.strftime("%Y-%m-%d")
-        
-        if not patient_data.get('gender'):
-            gender = st.selectbox("Gender:", ["", "Male", "Female", "Other"], key="gender_input")
-            if gender:
-                patient_data['gender'] = gender
-        
-        if not patient_data.get('address'):
-            address = st.text_area("Address:", key="address_input")
-            if address:
-                patient_data['address'] = address
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("✅ Confirm Details"):
-                # Check if all required fields are filled
-                required_fields = ['phone', 'DOB', 'gender', 'address']
-                missing_fields = [field for field in required_fields if not patient_data.get(field)]
+            patient_data = st.session_state.patient_data
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**Personal Details:**")
+                st.write(f"📝 Name: {patient_data.get('full_name', '')}")
+                st.write(f"📧 Email: {patient_data.get('email', '')}")
+                st.write(f"📱 Phone: {patient_data.get('phone', '')}")
                 
-                if missing_fields:
-                    st.error(f"Please fill in all required fields: {', '.join(missing_fields)}")
-                else:
-                    st.session_state.data_confirmed = True
-                    st.session_state.in_health_assessment = True
-                    # Start health-specific questions
-                    health_prompt = """
+            with col2:
+                st.markdown("**Additional Information:**")
+                st.write(f"🎂 Date of Birth: {patient_data.get('DOB', '')}")
+                st.write(f"⚧ Gender: {patient_data.get('gender', '')}")
+                st.write(f"📍 Address: {patient_data.get('address', '')}")
+
+            # Show medical history if available
+            if any(key in patient_data for key in ['previous_symptoms', 'previous_medications', 'previous_allergies', 'previous_surgeries']):
+                st.markdown("### Previous Medical History")
+                if patient_data.get('previous_symptoms'):
+                    st.write("🤒 Previous Symptoms:", patient_data['previous_symptoms'])
+                if patient_data.get('previous_medications'):
+                    st.write("💊 Previous Medications:", patient_data['previous_medications'])
+                if patient_data.get('previous_allergies'):
+                    st.write("⚠️ Known Allergies:", patient_data['previous_allergies'])
+                if patient_data.get('previous_surgeries'):
+                    st.write("🏥 Previous Surgeries:", patient_data['previous_surgeries'])
+            
+            # For new users, show input fields for missing information
+            if not patient_data.get('phone'):
+                phone = st.text_input("Phone Number:", key="phone_input")
+                if phone:
+                    patient_data['phone'] = phone
+            
+            if not patient_data.get('DOB'):
+                dob = st.date_input("Date of Birth:", key="dob_input")
+                if dob:
+                    patient_data['DOB'] = dob.strftime("%Y-%m-%d")
+            
+            if not patient_data.get('gender'):
+                gender = st.selectbox("Gender:", ["", "Male", "Female", "Other"], key="gender_input")
+                if gender:
+                    patient_data['gender'] = gender
+            
+            if not patient_data.get('address'):
+                address = st.text_area("Address:", key="address_input")
+                if address:
+                    patient_data['address'] = address
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Confirm Details"):
+                    # Check if all required fields are filled
+                    required_fields = ['phone', 'DOB', 'gender', 'address']
+                    missing_fields = [field for field in required_fields if not patient_data.get(field)]
+                    
+                    if missing_fields:
+                        st.error(f"Please fill in all required fields: {', '.join(missing_fields)}")
+                    else:
+                        st.session_state.data_confirmed = True
+                        st.session_state.in_health_assessment = True
+                        # Start health-specific questions
+                        health_prompt = """
 You are MediBot, a medical intake assistant. The patient has confirmed their details.
 
 IMPORTANT RULES:
@@ -492,75 +528,84 @@ IMPORTANT RULES:
 
 Begin with: "What symptoms or health concerns are you experiencing today? If none, please say 'no'."
 """
-                    st.session_state.intake_response = model.start_chat(history=[])
-                    reply = st.session_state.intake_response.send_message(health_prompt)
-                    st.session_state.intake_history.append(("bot", reply.text.strip()))
-                    st.rerun()
-        
-        with col2:
-            if st.button("❌ Details are Incorrect"):
-                st.error("Please contact support to update your information.")
+                        st.session_state.intake_response = model.start_chat(history=[])
+                        reply = st.session_state.intake_response.send_message(health_prompt)
+                        st.session_state.intake_history.append(("bot", reply.text.strip()))
+                        st.rerun()
+            
+            with col2:
+                if st.button("❌ Details are Incorrect"):
+                    st.error("Please contact support to update your information.")
+                    return {}, "", False
+            
+            return {}, "", False
+
+        # Show the last bot message during initial collection
+        if st.session_state.intake_history and not st.session_state.in_health_assessment:
+            st.write(f"{st.session_state.intake_history[-1][1]}")
+
+        user_input = st.text_input("Your answer:", key="intake_input", 
+                                placeholder="Type your response here...")
+        submit = st.button("Continue", key="intake_submit")
+
+        if submit and user_input and not st.session_state.in_health_assessment:
+            # Handle name input
+            if st.session_state.current_field == "name":
+                is_valid, result = is_valid_name(user_input)
+                if not is_valid:
+                    st.error(f"Invalid name: {result}")
+                    return {}, "", False
+                
+                # Save name and move to email collection
+                st.session_state.patient_data['full_name'] = result
+                st.session_state.current_field = "email"
+                st.session_state.intake_history.append(("bot", "Please enter your email:"))
+                st.rerun()
                 return {}, "", False
-        
+                
+            # Handle email input
+            elif st.session_state.current_field == "email":
+                # Basic email validation
+                if "@" not in user_input or "." not in user_input:
+                    st.error("Please enter a valid email address.")
+                    return {}, "", False
+                
+                # Save email and proceed
+                st.session_state.patient_data['email'] = user_input
+                st.session_state.initial_collection_done = True
+                
+                try:
+                    # Try to retrieve user data from DB
+                    db_user_data = get_user_from_db(user_input)
+                    if db_user_data:
+                        # Merge DB data with collected data
+                        st.session_state.patient_data.update(db_user_data)
+                        st.session_state.db_data_retrieved = True
+                        st.rerun()
+                    else:
+                        # For new users, set up basic info collection
+                        st.session_state.patient_data.update({
+                            'email': user_input,
+                            'full_name': st.session_state.patient_data.get('full_name', ''),
+                            'phone': '',
+                            'DOB': '',
+                            'gender': '',
+                            'address': ''
+                        })
+                        st.session_state.db_data_retrieved = True
+                        st.session_state.data_confirmed = False
+                        st.rerun()
+                except Exception as e:
+                    logger.error(f"Database error: {str(e)}")
+                    st.error(f"Error accessing database: {str(e)}")
+                return {}, "", False
+
         return {}, "", False
-
-    # Only show the last bot message during initial collection
-    if st.session_state.intake_history and not st.session_state.in_health_assessment:
-        st.write(f"{st.session_state.intake_history[-1][1]}")
-
-    user_input = st.text_input("Your answer:", key="intake_input", 
-                              placeholder="Type your response here...")
-    submit = st.button("Continue", key="intake_submit")
-
-    if submit and user_input and not st.session_state.in_health_assessment:
-        # Handle name input
-        if st.session_state.current_field == "name":
-            is_valid, result = is_valid_name(user_input)
-            if not is_valid:
-                st.error(f"Invalid name: {result}")
-                return {}, "", False
-            
-            # Save name and move to email collection
-            st.session_state.patient_data['full_name'] = result
-            st.session_state.current_field = "email"
-            st.session_state.intake_history.append(("bot", "Please enter your email:"))
-            st.rerun()
-            return {}, "", False
-            
-        # Handle email input
-        elif st.session_state.current_field == "email":
-            # Basic email validation
-            if "@" not in user_input or "." not in user_input:
-                st.error("Please enter a valid email address.")
-                return {}, "", False
-            
-            # Save email and proceed
-            st.session_state.patient_data['email'] = user_input
-            st.session_state.initial_collection_done = True
-            
-            # Try to retrieve user data from DB
-            db_user_data = get_user_from_db(user_input)
-            if db_user_data:
-                # Merge DB data with collected data
-                st.session_state.patient_data.update(db_user_data)
-                st.session_state.db_data_retrieved = True
-                st.rerun()
-            else:
-                # For new users, set up basic info collection
-                st.session_state.patient_data.update({
-                    'email': user_input,
-                    'full_name': st.session_state.patient_data.get('full_name', ''),
-                    'phone': '',
-                    'DOB': '',
-                    'gender': '',
-                    'address': ''
-                })
-                st.session_state.db_data_retrieved = True
-                st.session_state.data_confirmed = False
-                st.rerun()
-            return {}, "", False
-
-    return {}, "", False
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in dynamic_medical_intake: {str(e)}")
+        st.error(f"An unexpected error occurred: {str(e)}")
+        return {}, "", False
 
 
 def post_analysis_and_followup(patient_data):
