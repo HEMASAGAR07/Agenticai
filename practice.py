@@ -333,7 +333,9 @@ def convert_time_format(time_str):
     try:
         # If time is already in 24-hour format
         if ":" in time_str and not any(x in time_str.upper() for x in ["AM", "PM"]):
-            return time_str
+            # Ensure consistent format HH:MM
+            time_obj = datetime.strptime(time_str, "%H:%M")
+            return time_obj.strftime("%H:%M")
         
         # Convert 12-hour format to 24-hour
         time_obj = datetime.strptime(time_str.strip(), "%I:%M %p")
@@ -1067,7 +1069,7 @@ def get_all_slots_status(doctor_id, date):
         
         # First get all booked appointments for this date
         cursor.execute("""
-            SELECT appointment_time 
+            SELECT TIME_FORMAT(appointment_time, '%H:%i') as appointment_time 
             FROM appointments 
             WHERE doctor_id = %s 
             AND appointment_date = %s 
@@ -1108,7 +1110,7 @@ def get_all_slots_status(doctor_id, date):
         st.write("Debug Info (will be removed):")
         st.write(f"Total slots in schedule: {len(all_slots)}")
         st.write(f"Booked slots: {len(booked_slots)}")
-        st.write("Booked times:", booked_slots)
+        st.write("Booked times:", sorted(list(booked_slots)))
         
         # Filter available slots
         available_slots = []
@@ -1120,6 +1122,7 @@ def get_all_slots_status(doctor_id, date):
                 
             # Skip if slot is booked
             if time_24h in booked_slots:
+                st.write(f"Skipping booked slot: {time_24h}")  # Debug line
                 continue
                 
             # Convert to 12-hour format for display
@@ -1142,6 +1145,7 @@ def get_all_slots_status(doctor_id, date):
         
     except Exception as e:
         st.error(f"Error getting slots status: {str(e)}")
+        st.write("Full error:", str(e))  # Additional error info
         return []
     finally:
         if 'cursor' in locals():
