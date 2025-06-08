@@ -314,6 +314,20 @@ def get_available_doctors():
         if 'conn' in locals():
             conn.close()
 
+def convert_time_format(time_str):
+    """Convert time string to 24-hour format (HH:MM)"""
+    try:
+        # If time is already in 24-hour format
+        if ":" in time_str and not any(x in time_str.upper() for x in ["AM", "PM"]):
+            return time_str
+        
+        # Convert 12-hour format to 24-hour
+        time_obj = datetime.strptime(time_str.strip(), "%I:%M %p")
+        return time_obj.strftime("%H:%M")
+    except ValueError as e:
+        st.error(f"Error converting time format: {str(e)}")
+        return None
+
 def is_slot_available(doctor, date, time):
     """Check if a time slot is available for the doctor"""
     try:
@@ -322,8 +336,13 @@ def is_slot_available(doctor, date, time):
         if doctor.get('booked_slots'):
             booked_slots = doctor['booked_slots'].split(',')
         
+        # Convert time to 24-hour format for comparison
+        time_24h = convert_time_format(time)
+        if not time_24h:
+            return False
+            
         # Format the requested slot in the same format as booked slots
-        requested_slot = f"{date} {time}"
+        requested_slot = f"{date} {time_24h}"
         
         # Check if slot is already booked
         if requested_slot in booked_slots:
@@ -334,17 +353,14 @@ def is_slot_available(doctor, date, time):
         if doctor['available_days']:
             available_days = [day.strip()[:3] for day in doctor['available_days'].split(',')]  # Convert to short names
             if day_name not in available_days:
-                st.write(f"Debug: Day {day_name} not in available days {available_days}")  # Debug line
                 return False
         
         # Check if time is in available slots
-        available_slots = []
         if doctor['available_slots']:
             available_slots = json.loads(doctor['available_slots'])
-            # Convert time format if needed (e.g., "09:00" to "9:00 AM")
-            time_obj = datetime.strptime(time, "%H:%M").strftime("%I:%M %p").lstrip("0")
-            if time_obj not in available_slots and time not in available_slots:
-                st.write(f"Debug: Time {time_obj} not in available slots {available_slots}")  # Debug line
+            # Convert available slots to 24-hour format for comparison
+            available_slots_24h = [convert_time_format(slot) for slot in available_slots]
+            if time_24h not in available_slots_24h:
                 return False
         
         return True
@@ -1118,33 +1134,28 @@ def main():
                         selected_doctor = doctor_options[selected_doctor_name]
                         if selected_doctor['available_slots']:
                             all_slots = json.loads(selected_doctor['available_slots'])
-                            # Convert slots to 24-hour format for consistency
-                            all_slots_24h = []
+                            
+                            # Convert all slots to display format (12-hour)
+                            display_slots = []
                             for slot in all_slots:
                                 try:
-                                    # Handle both "HH:MM" and "H:MM AM/PM" formats
-                                    if ":" in slot and ("AM" in slot.upper() or "PM" in slot.upper()):
-                                        time_obj = datetime.strptime(slot, "%I:%M %p")
-                                    else:
+                                    # Convert to datetime object
+                                    if ":" in slot and not any(x in slot.upper() for x in ["AM", "PM"]):
+                                        # 24-hour format
                                         time_obj = datetime.strptime(slot, "%H:%M")
-                                    all_slots_24h.append(time_obj.strftime("%H:%M"))
-                                except ValueError:
-                                    st.error(f"Invalid time format in slot: {slot}")
+                                    else:
+                                        # 12-hour format
+                                        time_obj = datetime.strptime(slot, "%I:%M %p")
+                                    
+                                    # Check availability using 24-hour format
+                                    if is_slot_available(selected_doctor, appointment_date.strftime("%Y-%m-%d"), time_obj.strftime("%H:%M")):
+                                        # Add to display slots in 12-hour format
+                                        display_slots.append(time_obj.strftime("%I:%M %p").lstrip("0"))
+                                except ValueError as e:
+                                    st.error(f"Invalid time format in slot: {slot} - {str(e)}")
                                     continue
                             
-                            # Filter out booked slots
-                            available_slots = [
-                                slot for slot in all_slots_24h 
-                                if is_slot_available(selected_doctor, appointment_date.strftime("%Y-%m-%d"), slot)
-                            ]
-                            
-                            if available_slots:
-                                # Convert back to 12-hour format for display
-                                display_slots = []
-                                for slot in available_slots:
-                                    time_obj = datetime.strptime(slot, "%H:%M")
-                                    display_slots.append(time_obj.strftime("%I:%M %p").lstrip("0"))
-                                
+                            if display_slots:
                                 appointment_time = st.selectbox(
                                     "Select Time",
                                     options=sorted(display_slots)
@@ -1157,12 +1168,13 @@ def main():
                     submit_appointment = st.form_submit_button("Book Appointment and Proceed")
                     
                     if submit_appointment and selected_doctor_name and appointment_time:
-                        # Verify slot is still available (double-check)
-                        if is_slot_available(selected_doctor, appointment_date.strftime("%Y-%m-%d"), appointment_time):
+                        # Convert selected time to 24-hour format for final check
+                        time_24h = convert_time_format(appointment_time)
+                        if time_24h and is_slot_available(selected_doctor, appointment_date.strftime("%Y-%m-%d"), time_24h):
                             # Add appointment info to patient data
                             st.session_state.patient_data["appointment"] = {
                                 "date": appointment_date.strftime("%Y-%m-%d"),
-                                "time": appointment_time,
+                                "time": time_24h,  # Store in 24-hour format
                                 "status": "scheduled"
                             }
                             
