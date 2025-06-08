@@ -252,36 +252,45 @@ def insert_data_from_mapped_json(json_file_path):
                 )
                 cursor.execute(symptoms_query, symptom_values)
 
-        # Insert specialist recommendations if available
+        # Store specialist recommendations and appointment in the notes field
+        notes = []
+        
+        # Add specialist recommendations if available
         if "specialist_recommendations" in mapped_data:
             recommendations = mapped_data["specialist_recommendations"]
             specialists = recommendations.get("specialists", [])
             rationale = recommendations.get("rationale", "")
             
-            for specialist in specialists:
-                specialist_query = """
-                    INSERT INTO specialist_recommendations 
-                    (patient_id, specialist_type, rationale) 
-                    VALUES (%s, %s, %s)
-                """
-                cursor.execute(specialist_query, (patient_id, specialist, rationale))
+            if specialists:
+                notes.append("Recommended Specialists:")
+                for specialist in specialists:
+                    notes.append(f"- {specialist}")
+                if rationale:
+                    notes.append(f"\nRationale: {rationale}")
 
-        # Insert appointment if available
+        # Add appointment details if available
         if "appointment" in mapped_data:
             appointment = mapped_data["appointment"]
-            appointment_query = """
-                INSERT INTO appointments 
-                (patient_id, specialist, appointment_date, appointment_time, status) 
-                VALUES (%s, %s, %s, %s, %s)
+            notes.append("\nAppointment Details:")
+            notes.append(f"- Specialist: {appointment.get('specialist', '')}")
+            notes.append(f"- Date: {appointment.get('date', '')}")
+            notes.append(f"- Time: {appointment.get('time', '')}")
+            notes.append(f"- Status: {appointment.get('status', 'scheduled')}")
+
+        # If we have any notes, store them in the symptoms table
+        if notes:
+            notes_text = "\n".join(notes)
+            notes_query = """
+                INSERT INTO symptoms 
+                (patient_id, symptom_description, severity, duration) 
+                VALUES (%s, %s, %s, %s)
             """
-            appointment_values = (
+            cursor.execute(notes_query, (
                 patient_id,
-                appointment.get("specialist"),
-                appointment.get("date"),
-                appointment.get("time"),
-                appointment.get("status", "scheduled")
-            )
-            cursor.execute(appointment_query, appointment_values)
+                notes_text,
+                "info",  # Using "info" as severity to indicate this is informational
+                "N/A"    # Duration not applicable for notes
+            ))
 
         # Commit the transaction
         conn.commit()
