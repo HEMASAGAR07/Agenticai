@@ -1233,7 +1233,32 @@ def reserve_appointment_slot(doctor_id, appointment_date, appointment_time, emai
         if 'conn' in locals():
             conn.close()
 
+def init_session_state():
+    """Initialize session state variables"""
+    if "step" not in st.session_state:
+        st.session_state.step = "intake"
+    if "form_key" not in st.session_state:
+        st.session_state.form_key = 0
+    if "selected_date" not in st.session_state:
+        st.session_state.selected_date = None
+    if "last_doctor" not in st.session_state:
+        st.session_state.last_doctor = None
+    if "appointment_date_key" not in st.session_state:
+        st.session_state.appointment_date_key = 0
+
+def handle_date_change():
+    """Handle date change event"""
+    # Increment form key to force refresh
+    st.session_state.form_key = st.session_state.get('form_key', 0) + 1
+    st.session_state.appointment_date_key += 1
+    # Clear previous selections
+    if 'selected_time_24h' in st.session_state:
+        del st.session_state.selected_time_24h
+
 def main():
+    # Initialize session state
+    init_session_state()
+
     # Header with logo and title
     col1, col2 = st.columns([1, 4])
     with col1:
@@ -1345,7 +1370,8 @@ def main():
                 st.markdown("### 👨‍⚕️ Available Doctors")
                 
                 # Create appointment booking form
-                with st.form(key=f"appointment_form_{st.session_state.get('form_key', 0)}"):
+                appointment_form_key = f"appointment_form_{st.session_state.form_key}_{st.session_state.appointment_date_key}"
+                with st.form(key=appointment_form_key):
                     # Create a formatted display name for each doctor
                     doctor_options = {
                         f"Dr. {doc['full_name']} - {doc['specialization']} ({doc['experience_years']} years) - {doc['hospital_affiliation']}": doc 
@@ -1355,12 +1381,17 @@ def main():
                     selected_doctor_name = st.selectbox(
                         "Select Doctor",
                         options=list(doctor_options.keys()),
-                        key=f"doctor_select_{st.session_state.get('form_key', 0)}",
+                        key=f"doctor_select_{st.session_state.form_key}",
                         help="Choose a doctor from the recommended specialists"
                     )
-                    
+
                     if selected_doctor_name:
                         selected_doctor = doctor_options[selected_doctor_name]
+                        
+                        # Update last selected doctor
+                        if st.session_state.last_doctor != selected_doctor["doctor_id"]:
+                            st.session_state.last_doctor = selected_doctor["doctor_id"]
+                            handle_date_change()  # Force refresh when doctor changes
                         
                         # Show doctor's details
                         st.markdown("#### Doctor Details")
@@ -1380,22 +1411,19 @@ def main():
                     # Get today's date
                     today = datetime.now().date()
                     
-                    # Allow selecting dates from tomorrow onwards
+                    # Date selection with callback
                     appointment_date = st.date_input(
                         "Select Date",
                         min_value=today + timedelta(days=1),
-                        value=today + timedelta(days=1),
-                        key=f"date_select_{st.session_state.get('form_key', 0)}"
+                        value=st.session_state.get('selected_date', today + timedelta(days=1)),
+                        key=f"date_select_{st.session_state.appointment_date_key}",
+                        on_change=handle_date_change
                     )
 
-                    # Store the selected date in session state
-                    if "selected_date" not in st.session_state or st.session_state.selected_date != appointment_date:
+                    # Update selected date in session state
+                    if st.session_state.selected_date != appointment_date:
                         st.session_state.selected_date = appointment_date
-                        # Increment form key to force refresh
-                        st.session_state.form_key = st.session_state.get('form_key', 0) + 1
-                        # Clear previous selection
-                        if 'selected_time_24h' in st.session_state:
-                            del st.session_state.selected_time_24h
+                        handle_date_change()
                     
                     # Show available slots for selected doctor
                     if selected_doctor_name:
@@ -1416,7 +1444,7 @@ def main():
                             appointment_time = st.selectbox(
                                 "Select a Time",
                                 options=[slot["time"] for slot in available_slots],
-                                key=f"time_select_{st.session_state.get('form_key', 0)}",
+                                key=f"time_select_{st.session_state.form_key}_{st.session_state.appointment_date_key}",
                                 help="Choose from available time slots"
                             )
                             
@@ -1428,7 +1456,7 @@ def main():
                                 )
                                 if selected_slot:
                                     st.session_state.selected_time_24h = selected_slot["time_24h"]
-                                    
+                            
                             # Show submit button
                             submit_appointment = st.form_submit_button("Book Appointment")
                             
@@ -1487,7 +1515,6 @@ def main():
                         else:
                             st.error("No available slots for this date")
                             st.info("💡 Suggestion: Try selecting a different date or check another doctor's availability")
-                            # Disable submit button when no slots available
                             st.form_submit_button("Book Appointment", disabled=True)
             else:
                 st.error("No doctors available at the moment. Please try again later.")
