@@ -330,15 +330,21 @@ def is_slot_available(doctor, date, time):
             return False
         
         # Check if day is in available days
-        day_name = datetime.strptime(date, "%Y-%m-%d").strftime("%A")
-        if doctor['available_days'] and day_name not in doctor['available_days'].split(','):
-            return False
+        day_name = datetime.strptime(date, "%Y-%m-%d").strftime("%A")[:3]  # Get short day name (Mon, Tue, etc.)
+        if doctor['available_days']:
+            available_days = [day.strip()[:3] for day in doctor['available_days'].split(',')]  # Convert to short names
+            if day_name not in available_days:
+                st.write(f"Debug: Day {day_name} not in available days {available_days}")  # Debug line
+                return False
         
         # Check if time is in available slots
         available_slots = []
         if doctor['available_slots']:
             available_slots = json.loads(doctor['available_slots'])
-            if time not in available_slots:
+            # Convert time format if needed (e.g., "09:00" to "9:00 AM")
+            time_obj = datetime.strptime(time, "%H:%M").strftime("%I:%M %p").lstrip("0")
+            if time_obj not in available_slots and time not in available_slots:
+                st.write(f"Debug: Time {time_obj} not in available slots {available_slots}")  # Debug line
                 return False
         
         return True
@@ -1112,29 +1118,36 @@ def main():
                         selected_doctor = doctor_options[selected_doctor_name]
                         if selected_doctor['available_slots']:
                             all_slots = json.loads(selected_doctor['available_slots'])
+                            # Convert slots to 24-hour format for consistency
+                            all_slots_24h = []
+                            for slot in all_slots:
+                                try:
+                                    # Handle both "HH:MM" and "H:MM AM/PM" formats
+                                    if ":" in slot and ("AM" in slot.upper() or "PM" in slot.upper()):
+                                        time_obj = datetime.strptime(slot, "%I:%M %p")
+                                    else:
+                                        time_obj = datetime.strptime(slot, "%H:%M")
+                                    all_slots_24h.append(time_obj.strftime("%H:%M"))
+                                except ValueError:
+                                    st.error(f"Invalid time format in slot: {slot}")
+                                    continue
+                            
                             # Filter out booked slots
                             available_slots = [
-                                slot for slot in all_slots 
+                                slot for slot in all_slots_24h 
                                 if is_slot_available(selected_doctor, appointment_date.strftime("%Y-%m-%d"), slot)
                             ]
+                            
                             if available_slots:
+                                # Convert back to 12-hour format for display
+                                display_slots = []
+                                for slot in available_slots:
+                                    time_obj = datetime.strptime(slot, "%H:%M")
+                                    display_slots.append(time_obj.strftime("%I:%M %p").lstrip("0"))
+                                
                                 appointment_time = st.selectbox(
                                     "Select Time",
-                                    options=available_slots
-                                )
-                            else:
-                                st.error("No available slots for the selected date. Please choose another date.")
-                                appointment_time = None
-                        else:
-                            default_slots = ["9:00 AM", "10:00 AM", "11:00 AM", "2:00 PM", "3:00 PM", "4:00 PM"]
-                            available_slots = [
-                                slot for slot in default_slots 
-                                if is_slot_available(selected_doctor, appointment_date.strftime("%Y-%m-%d"), slot)
-                            ]
-                            if available_slots:
-                                appointment_time = st.selectbox(
-                                    "Select Time",
-                                    options=available_slots
+                                    options=sorted(display_slots)
                                 )
                             else:
                                 st.error("No available slots for the selected date. Please choose another date.")
