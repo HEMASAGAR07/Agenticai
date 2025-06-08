@@ -948,7 +948,8 @@ def main():
                     ["9:00 AM", "10:00 AM", "11:00 AM", "2:00 PM", "3:00 PM", "4:00 PM"]
                 )
                 
-                submit_appointment = st.form_submit_button("Book Appointment")
+                # Include the "Proceed to Save Data" in the form submit
+                submit_appointment = st.form_submit_button("Book Appointment and Proceed")
                 
                 if submit_appointment:
                     # Add appointment info to patient data
@@ -960,9 +961,9 @@ def main():
                     }
                     
                     st.success("✅ Appointment scheduled successfully!")
-                    if st.button("Proceed to Save Data"):
-                        st.session_state.step = "db_insert"
-                        st.rerun()
+                    # Move to next step
+                    st.session_state.step = "db_insert"
+                    st.rerun()
 
     elif st.session_state.step == "db_insert":
         st.markdown("""
