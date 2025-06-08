@@ -1231,6 +1231,8 @@ def init_session_state():
         st.session_state.last_doctor = None
     if "appointment_date_key" not in st.session_state:
         st.session_state.appointment_date_key = 0
+    if "error_message" not in st.session_state:
+        st.session_state.error_message = None
 
 def handle_date_change():
     """Handle date change event"""
@@ -1242,373 +1244,387 @@ def handle_date_change():
         del st.session_state.selected_time_24h
 
 def main():
-    # Initialize session state
-    init_session_state()
+    try:
+        # Initialize session state
+        init_session_state()
 
-    # Header with logo and title
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        st.markdown("# 🏥")
-    with col2:
-        st.markdown("""
-            <h1 style='color: #2c3e50;'>Medical Symptom Analysis</h1>
-            <p style='color: #7f8c8d;'>AI-powered symptom analysis and recommendations</p>
-        """, unsafe_allow_html=True)
+        # Header with logo and title
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            st.markdown("# 🏥")
+        with col2:
+            st.markdown("""
+                <h1 style='color: #2c3e50;'>Medical Symptom Analysis</h1>
+                <p style='color: #7f8c8d;'>AI-powered symptom analysis and recommendations</p>
+            """, unsafe_allow_html=True)
 
-    # Progress bar
-    if "step" not in st.session_state:
-        st.session_state.step = "intake"
-    
-    # Simplified steps
-    steps = ["intake", "specialist", "appointment", "db_insert"]
-    current_step = steps.index(st.session_state.step) + 1
-    progress = current_step / len(steps)
-    
-    st.markdown(f"""
-        <div style='padding: 1rem; background-color: #f8f9fa; border-radius: 10px; margin-bottom: 2rem;'>
-            <p style='margin-bottom: 0.5rem;'>Progress: Step {current_step} of {len(steps)}</p>
-        </div>
-    """, unsafe_allow_html=True)
-    st.progress(progress)
-
-    # Migrate any existing session data
-    if "patient_data" in st.session_state:
-        st.session_state.patient_data = migrate_existing_data({"patient_data": st.session_state.patient_data})["patient_data"]
-
-    if st.session_state.step == "intake":
-        st.markdown("""
-            <div class='step-header'>
-                <h2>Step 1: Symptom Analysis</h2>
-                <p>Let's analyze your symptoms and provide recommendations</p>
+        # Progress bar
+        if "step" not in st.session_state:
+            st.session_state.step = "intake"
+        
+        # Simplified steps
+        steps = ["intake", "specialist", "appointment", "db_insert"]
+        current_step = steps.index(st.session_state.step) + 1
+        progress = current_step / len(steps)
+        
+        st.markdown(f"""
+            <div style='padding: 1rem; background-color: #f8f9fa; border-radius: 10px; margin-bottom: 2rem;'>
+                <p style='margin-bottom: 0.5rem;'>Progress: Step {current_step} of {len(steps)}</p>
             </div>
         """, unsafe_allow_html=True)
-        
-        patient_data, _, done = dynamic_medical_intake()
-        if done:
-            st.session_state.step = "specialist"
-            st.rerun()
+        st.progress(progress)
 
-    elif st.session_state.step == "specialist":
-        st.markdown("""
-            <div class='step-header'>
-                <h2>Step 2: Specialist Recommendation</h2>
-                <p>Based on your symptoms, we'll recommend appropriate specialists</p>
-            </div>
-        """, unsafe_allow_html=True)
+        # Migrate any existing session data
+        if "patient_data" in st.session_state:
+            st.session_state.patient_data = migrate_existing_data({"patient_data": st.session_state.patient_data})["patient_data"]
 
-        # Get specialist recommendations
-        specialists, rationale = recommend_specialist(st.session_state.patient_data)
-        
-        if specialists:
-            st.markdown("### Recommended Specialists")
-            for specialist in specialists:
-                st.write(f"👨‍⚕️ {specialist}")
+        if st.session_state.step == "intake":
+            st.markdown("""
+                <div class='step-header'>
+                    <h2>Step 1: Symptom Analysis</h2>
+                    <p>Let's analyze your symptoms and provide recommendations</p>
+                </div>
+            """, unsafe_allow_html=True)
             
-            if rationale:
-                st.markdown("### Recommendation Rationale")
-                st.write(rationale)
-            
-            # Store recommendations in session state
-            st.session_state.specialist_recommendations = {
-                "specialists": specialists,
-                "rationale": rationale
-            }
-            
-            if st.button("Proceed to Appointment Booking"):
-                st.session_state.step = "appointment"
+            patient_data, _, done = dynamic_medical_intake()
+            if done:
+                st.session_state.step = "specialist"
                 st.rerun()
 
-    elif st.session_state.step == "appointment":
-        st.markdown("""
-            <div class='step-header'>
-                <h2>Step 3: Schedule Appointment</h2>
-                <p>Book an appointment with your recommended specialist</p>
-            </div>
-        """, unsafe_allow_html=True)
+        elif st.session_state.step == "specialist":
+            st.markdown("""
+                <div class='step-header'>
+                    <h2>Step 2: Specialist Recommendation</h2>
+                    <p>Based on your symptoms, we'll recommend appropriate specialists</p>
+                </div>
+            """, unsafe_allow_html=True)
 
-        if "specialist_recommendations" in st.session_state:
-            specialists = st.session_state.specialist_recommendations["specialists"]
-            rationale = st.session_state.specialist_recommendations["rationale"]
+            # Get specialist recommendations
+            specialists, rationale = recommend_specialist(st.session_state.patient_data)
             
-            st.markdown("### Recommended Specialists")
-            for specialist in specialists:
-                st.write(f"👨‍⚕️ {specialist}")
-            
-            if rationale:
-                st.markdown("### Recommendation Rationale")
-                st.write(rationale)
-            
-            # Get available doctors based on recommended specializations
-            available_doctors = get_available_doctors()
-            recommended_doctors = [
-                doc for doc in available_doctors 
-                if any(spec.lower() in doc['specialization'].lower() for spec in specialists)
-            ]
-            
-            if not recommended_doctors:
-                st.warning("No doctors available for the recommended specializations. Showing all available doctors.")
-                recommended_doctors = available_doctors
-            
-            if recommended_doctors:
-                st.markdown("### 👨‍⚕️ Available Doctors")
+            if specialists:
+                st.markdown("### Recommended Specialists")
+                for specialist in specialists:
+                    st.write(f"👨‍⚕️ {specialist}")
                 
-                # Date selection outside the form
-                today = datetime.now().date()
-                tomorrow = today + timedelta(days=1)
+                if rationale:
+                    st.markdown("### Recommendation Rationale")
+                    st.write(rationale)
                 
-                # Initialize default date and doctor in session state if not present
-                if 'selected_date' not in st.session_state:
-                    st.session_state.selected_date = tomorrow
-                
-                # Create doctor selection form first
-                with st.form(key="doctor_selection_form"):
-                    st.markdown("#### 👨‍⚕️ Choose Your Doctor")
-                    # Create a formatted display name for each doctor
-                    doctor_options = {
-                        f"Dr. {doc['full_name']} - {doc['specialization']} ({doc['experience_years']} years) - {doc['hospital_affiliation']}": doc 
-                        for doc in recommended_doctors
-                    }
-                    
-                    selected_doctor_name = st.selectbox(
-                        "Select a doctor from the list below",
-                        options=list(doctor_options.keys()),
-                        key="doctor_select",
-                        help="Choose a doctor based on their specialization and experience"
-                    )
-                    
-                    update_doctor = st.form_submit_button("✨ View Doctor's Schedule")
-                    
-                    if update_doctor and selected_doctor_name:
-                        selected_doctor = doctor_options[selected_doctor_name]
-                        st.session_state.current_doctor = selected_doctor
-                        st.rerun()
-
-                # Initialize current doctor if not set
-                if 'current_doctor' not in st.session_state and selected_doctor_name:
-                    st.session_state.current_doctor = doctor_options[selected_doctor_name]
-                
-                # Date selection with automatic availability check
-                col1, col2 = st.columns([2, 1])
-                with col1:
-                    st.markdown("#### 📅 Select Appointment Date")
-                    new_date = st.date_input(
-                        "Choose your preferred date",
-                        min_value=tomorrow,
-                        value=st.session_state.selected_date,
-                        key=f"date_select_{st.session_state.appointment_date_key}",
-                        help="Select a date for your appointment. Only future dates are available."
-                    )
-                    
-                    # Show selected date in a more readable format
-                    st.write(f"Selected: {new_date.strftime('%A, %B %d, %Y')}")
-                    
-                    # Update session state if date changed
-                    if st.session_state.selected_date != new_date:
-                        st.session_state.selected_date = new_date
-                        st.rerun()
-
-                # Show appointment booking form only if doctor is selected
-                if 'current_doctor' in st.session_state:
-                    current_doctor = st.session_state.current_doctor
-                    
-                    # Get available slots
-                    available_slots = get_all_slots_status(
-                        current_doctor["doctor_id"], 
-                        new_date.strftime("%Y-%m-%d")
-                    )
-                    
-                    # Show doctor's details in a nice format
-                    st.markdown("""
-                        <div style='padding: 1rem; background-color: #f8f9fa; border-radius: 10px; margin: 1rem 0;'>
-                            <h4 style='color: #2c3e50; margin-bottom: 1rem;'>Doctor Details</h4>
-                        """, unsafe_allow_html=True)
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.write("🏥 Hospital:", current_doctor['hospital_affiliation'])
-                            st.write("📚 Experience:", f"{current_doctor['experience_years']} years")
-                        with col2:
-                            st.write("📅 Available Days:", current_doctor['available_days'])
-                            if available_slots:
-                                available_times = [slot["time"] for slot in available_slots]
-                                st.write("⏰ Available Slots:", ", ".join(available_times))
-                            else:
-                                st.write("⏰ No slots available for selected date")
-                        
-                        st.markdown("</div>", unsafe_allow_html=True)
-                        
-                        # Only show booking form if there are available slots
-                        if available_slots:
-                            with st.form(key="booking_form"):
-                                st.markdown("### 📅 Book Your Appointment")
-                                st.write(f"Scheduling for: {new_date.strftime('%A, %B %d, %Y')}")
-                                
-                                st.success(f"✅ {len(available_slots)} time slots available")
-                                # Show only available times in the selection
-                                appointment_time = st.selectbox(
-                                    "Choose your preferred time",
-                                    options=[slot["time"] for slot in available_slots],
-                                    key="time_select",
-                                    help="Select a convenient time from available slots"
-                                )
-                                
-                                # Store the 24h time format
-                                if appointment_time:
-                                    selected_slot = next(
-                                        (slot for slot in available_slots if slot["time"] == appointment_time),
-                                        None
-                                    )
-                                    if selected_slot:
-                                        st.session_state.selected_time_24h = selected_slot["time_24h"]
-                                
-                                book_appointment = st.form_submit_button("🎯 Confirm Appointment")
-                                
-                                if book_appointment:
-                                    if not hasattr(st.session_state, 'selected_time_24h'):
-                                        st.error("Please select an appointment time.")
-                                        return
-                                    
-                                    # Double check slot availability
-                                    current_slots = get_all_slots_status(
-                                        current_doctor["doctor_id"], 
-                                        new_date.strftime("%Y-%m-%d")
-                                    )
-                                    
-                                    if not any(slot["time_24h"] == st.session_state.selected_time_24h for slot in current_slots):
-                                        st.error("❌ This slot is no longer available. Please select a different time.")
-                                        st.rerun()
-                                        return
-                                    
-                                    # Try to reserve the slot
-                                    success, message = reserve_appointment_slot(
-                                        current_doctor["doctor_id"],
-                                        new_date.strftime("%Y-%m-%d"),
-                                        st.session_state.selected_time_24h,
-                                        st.session_state.patient_data.get("email", "")
-                                    )
-                                    
-                                    if success:
-                                        st.success(f"✅ {message}")
-                                        
-                                        # Add appointment info to patient data
-                                        st.session_state.patient_data["appointment"] = {
-                                            "date": new_date.strftime("%Y-%m-%d"),
-                                            "time": st.session_state.selected_time_24h,
-                                            "status": "scheduled"
-                                        }
-                                        
-                                        # Add selected doctor info
-                                        st.session_state.patient_data["selected_doctor"] = {
-                                            "doctor_id": current_doctor["doctor_id"],
-                                            "name": current_doctor["full_name"],
-                                            "specialization": current_doctor["specialization"],
-                                            "hospital": current_doctor["hospital_affiliation"]
-                                        }
-                                        
-                                        # Move to next step
-                                        st.session_state.step = "db_insert"
-                                        st.rerun()
-                                    else:
-                                        st.error(f"❌ {message}")
-                                        st.rerun()
-                        else:
-                            st.warning("👉 No available slots for the selected date. Please choose a different date.")
-                else:
-                    st.error("No doctors available at the moment. Please try again later.")
-                    return
-
-    elif st.session_state.step == "db_insert":
-        st.markdown("""
-            <div class='step-header'>
-                <h2>Step 4: Saving Analysis</h2>
-                <p>Saving your symptom analysis and recommendations</p>
-            </div>
-        """, unsafe_allow_html=True)
-
-        # Prepare data for mapping
-        if "patient_data" in st.session_state:
-            try:
-                # Create the final JSON structure
-                final_json = {
-                    "patient_data": st.session_state.patient_data,
-                    "status": "complete"
+                # Store recommendations in session state
+                st.session_state.specialist_recommendations = {
+                    "specialists": specialists,
+                    "rationale": rationale
                 }
                 
-                # Add specialist recommendations if available
+                if st.button("Proceed to Appointment Booking"):
+                    st.session_state.step = "appointment"
+                    st.rerun()
+
+        elif st.session_state.step == "appointment":
+            try:
+                st.markdown("""
+                    <div class='step-header'>
+                        <h2>Step 3: Schedule Appointment</h2>
+                        <p>Book an appointment with your recommended specialist</p>
+                    </div>
+                """, unsafe_allow_html=True)
+
                 if "specialist_recommendations" in st.session_state:
-                    final_json["specialist_recommendations"] = st.session_state.specialist_recommendations
-                
-                # Map the data to DB schema
-                mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_json)
-                
-                # Save mapped data with date serialization
-                mapped_file = "mapped_output.json"
-                with open(mapped_file, "w") as f:
-                    json.dump(mapped_result, f, indent=2, default=date_serializer)
-                
-                # Show the mapped data
-                with st.expander("View Mapped Data"):
-                    st.json(mapped_result)
-                
-                # Insert into database
-                if st.button("Save to Database", key="save_to_db"):
-                    try:
-                        # Pass the file path to the insert function
-                        result = insert_data_from_mapped_json(mapped_file)
-                        if result.get("status") == "success":
-                            st.success("✅ Analysis saved successfully!")
+                    specialists = st.session_state.specialist_recommendations["specialists"]
+                    rationale = st.session_state.specialist_recommendations["rationale"]
+                    
+                    st.markdown("### Recommended Specialists")
+                    for specialist in specialists:
+                        st.write(f"👨‍⚕️ {specialist}")
+                    
+                    if rationale:
+                        st.markdown("### Recommendation Rationale")
+                        st.write(rationale)
+                    
+                    # Get available doctors based on recommended specializations
+                    available_doctors = get_available_doctors()
+                    recommended_doctors = [
+                        doc for doc in available_doctors 
+                        if any(spec.lower() in doc['specialization'].lower() for spec in specialists)
+                    ]
+                    
+                    if not recommended_doctors:
+                        st.warning("No doctors available for the recommended specializations. Showing all available doctors.")
+                        recommended_doctors = available_doctors
+                    
+                    if recommended_doctors:
+                        st.markdown("### 👨‍⚕️ Available Doctors")
+                        
+                        # Date selection outside the form
+                        today = datetime.now().date()
+                        tomorrow = today + timedelta(days=1)
+                        
+                        # Initialize default date and doctor in session state if not present
+                        if 'selected_date' not in st.session_state:
+                            st.session_state.selected_date = tomorrow
+                        
+                        # Create doctor selection form first
+                        with st.form(key="doctor_selection_form"):
+                            st.markdown("#### 👨‍⚕️ Choose Your Doctor")
+                            # Create a formatted display name for each doctor
+                            doctor_options = {
+                                f"Dr. {doc['full_name']} - {doc['specialization']} ({doc['experience_years']} years) - {doc['hospital_affiliation']}": doc 
+                                for doc in recommended_doctors
+                            }
                             
-                            # Show the analysis results
-                            if "symptoms_analysis" in mapped_result:
-                                analysis = mapped_result["symptoms_analysis"]
-                                st.write("### Analysis Results")
-                                
-                                if "symptoms_identified" in analysis:
-                                    st.write("*Identified Symptoms:*")
-                                    for symptom in analysis["symptoms_identified"]:
-                                        st.write(f"- {symptom}")
-                                
-                                if "severity_analysis" in analysis:
-                                    st.write(f"*Severity Analysis:* {analysis['severity_analysis']}")
-                                
-                                if "recommended_specialists" in analysis:
-                                    st.write("*Recommended Medical Specialties:*")
-                                    for specialist in analysis["recommended_specialists"]:
-                                        st.write(f"- {specialist}")
-                                
-                                if "rationale" in analysis:
-                                    st.write(f"*Analysis Rationale:* {analysis['rationale']}")
+                            selected_doctor_name = st.selectbox(
+                                "Select a doctor from the list below",
+                                options=list(doctor_options.keys()),
+                                key="doctor_select",
+                                help="Choose a doctor based on their specialization and experience"
+                            )
                             
-                            # Show appointment details if available
-                            if "appointment" in st.session_state.patient_data and "selected_doctor" in st.session_state.patient_data:
-                                st.write("### Appointment Details")
-                                appt = st.session_state.patient_data["appointment"]
-                                doctor = st.session_state.patient_data["selected_doctor"]
-                                st.write(f"🗓️ Date: {appt['date']}")
-                                st.write(f"⏰ Time: {appt['time']}")
-                                st.write(f"👨‍⚕️ Doctor: Dr. {doctor['name']}")
-                                st.write(f"🏥 Hospital: {doctor['hospital']}")
+                            update_doctor = st.form_submit_button("✨ View Doctor's Schedule")
                             
-                            if st.button("Start New Analysis"):
-                                # Clear session state
-                                for key in list(st.session_state.keys()):
-                                    del st.session_state[key]
-                                st.session_state.step = "intake"
+                            if update_doctor and selected_doctor_name:
+                                selected_doctor = doctor_options[selected_doctor_name]
+                                st.session_state.current_doctor = selected_doctor
                                 st.rerun()
+
+                        # Initialize current doctor if not set
+                        if 'current_doctor' not in st.session_state and selected_doctor_name:
+                            st.session_state.current_doctor = doctor_options[selected_doctor_name]
+                        
+                        # Date selection with automatic availability check
+                        col1, col2 = st.columns([2, 1])
+                        with col1:
+                            st.markdown("#### 📅 Select Appointment Date")
+                            try:
+                                new_date = st.date_input(
+                                    "Choose your preferred date",
+                                    min_value=tomorrow,
+                                    value=st.session_state.selected_date,
+                                    key=f"date_select_{st.session_state.appointment_date_key}",
+                                    help="Select a date for your appointment. Only future dates are available.",
+                                    format="YYYY-MM-DD"
+                                )
+                                
+                                # Show selected date in a more readable format
+                                st.write(f"Selected: {new_date.strftime('%A, %B %d, %Y')}")
+                                
+                                # Update session state if date changed
+                                if st.session_state.selected_date != new_date:
+                                    st.session_state.selected_date = new_date
+                                    st.rerun()
+                            except Exception as e:
+                                st.error("Please select a valid date")
+                                return
+
+                        # Show appointment booking form only if doctor is selected
+                        if 'current_doctor' in st.session_state:
+                            current_doctor = st.session_state.current_doctor
+                            
+                            # Get available slots
+                            available_slots = get_all_slots_status(
+                                current_doctor["doctor_id"], 
+                                new_date.strftime("%Y-%m-%d")
+                            )
+                            
+                            # Show doctor's details in a nice format
+                            st.markdown("""
+                                <div style='padding: 1rem; background-color: #f8f9fa; border-radius: 10px; margin: 1rem 0;'>
+                                    <h4 style='color: #2c3e50; margin-bottom: 1rem;'>Doctor Details</h4>
+                                """, unsafe_allow_html=True)
+                                
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.write("🏥 Hospital:", current_doctor['hospital_affiliation'])
+                                    st.write("📚 Experience:", f"{current_doctor['experience_years']} years")
+                                with col2:
+                                    st.write("📅 Available Days:", current_doctor['available_days'])
+                                    if available_slots:
+                                        available_times = [slot["time"] for slot in available_slots]
+                                        st.write("⏰ Available Slots:", ", ".join(available_times))
+                                    else:
+                                        st.write("⏰ No slots available for selected date")
+                                
+                                st.markdown("</div>", unsafe_allow_html=True)
+                                
+                                # Only show booking form if there are available slots
+                                if available_slots:
+                                    with st.form(key="booking_form"):
+                                        st.markdown("### 📅 Book Your Appointment")
+                                        st.write(f"Scheduling for: {new_date.strftime('%A, %B %d, %Y')}")
+                                        
+                                        st.success(f"✅ {len(available_slots)} time slots available")
+                                        # Show only available times in the selection
+                                        appointment_time = st.selectbox(
+                                            "Choose your preferred time",
+                                            options=[slot["time"] for slot in available_slots],
+                                            key="time_select",
+                                            help="Select a convenient time from available slots"
+                                        )
+                                        
+                                        # Store the 24h time format
+                                        if appointment_time:
+                                            selected_slot = next(
+                                                (slot for slot in available_slots if slot["time"] == appointment_time),
+                                                None
+                                            )
+                                            if selected_slot:
+                                                st.session_state.selected_time_24h = selected_slot["time_24h"]
+                                        
+                                        book_appointment = st.form_submit_button("🎯 Confirm Appointment")
+                                        
+                                        if book_appointment:
+                                            if not hasattr(st.session_state, 'selected_time_24h'):
+                                                st.error("Please select an appointment time.")
+                                                return
+                                            
+                                            # Double check slot availability
+                                            current_slots = get_all_slots_status(
+                                                current_doctor["doctor_id"], 
+                                                new_date.strftime("%Y-%m-%d")
+                                            )
+                                            
+                                            if not any(slot["time_24h"] == st.session_state.selected_time_24h for slot in current_slots):
+                                                st.error("❌ This slot is no longer available. Please select a different time.")
+                                                st.rerun()
+                                                return
+                                            
+                                            # Try to reserve the slot
+                                            success, message = reserve_appointment_slot(
+                                                current_doctor["doctor_id"],
+                                                new_date.strftime("%Y-%m-%d"),
+                                                st.session_state.selected_time_24h,
+                                                st.session_state.patient_data.get("email", "")
+                                            )
+                                            
+                                            if success:
+                                                st.success(f"✅ {message}")
+                                                
+                                                # Add appointment info to patient data
+                                                st.session_state.patient_data["appointment"] = {
+                                                    "date": new_date.strftime("%Y-%m-%d"),
+                                                    "time": st.session_state.selected_time_24h,
+                                                    "status": "scheduled"
+                                                }
+                                                
+                                                # Add selected doctor info
+                                                st.session_state.patient_data["selected_doctor"] = {
+                                                    "doctor_id": current_doctor["doctor_id"],
+                                                    "name": current_doctor["full_name"],
+                                                    "specialization": current_doctor["specialization"],
+                                                    "hospital": current_doctor["hospital_affiliation"]
+                                                }
+                                                
+                                                # Move to next step
+                                                st.session_state.step = "db_insert"
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ {message}")
+                                                st.rerun()
+                                else:
+                                    st.warning("👉 No available slots for the selected date. Please choose a different date.")
                         else:
-                            st.error("❌ Failed to save analysis")
-                    except Exception as e:
-                        st.error(f"❌ Database error: {str(e)}")
-            except Exception as e:
-                st.error(f"❌ Error preparing data: {str(e)}")
-                # Add debugging information
-                st.write("Debug info:")
-                st.write("Patient data:", st.session_state.patient_data)
-        else:
-            st.error("No patient data available. Please complete the symptom analysis first.")
-            if st.button("Return to Symptom Analysis"):
-                st.session_state.step = "intake"
-                st.rerun()
+                            st.error("No doctors available at the moment. Please try again later.")
+                            return
+
+        elif st.session_state.step == "db_insert":
+            st.markdown("""
+                <div class='step-header'>
+                    <h2>Step 4: Saving Analysis</h2>
+                    <p>Saving your symptom analysis and recommendations</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+            # Prepare data for mapping
+            if "patient_data" in st.session_state:
+                try:
+                    # Create the final JSON structure
+                    final_json = {
+                        "patient_data": st.session_state.patient_data,
+                        "status": "complete"
+                    }
+                    
+                    # Add specialist recommendations if available
+                    if "specialist_recommendations" in st.session_state:
+                        final_json["specialist_recommendations"] = st.session_state.specialist_recommendations
+                    
+                    # Map the data to DB schema
+                    mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_json)
+                    
+                    # Save mapped data with date serialization
+                    mapped_file = "mapped_output.json"
+                    with open(mapped_file, "w") as f:
+                        json.dump(mapped_result, f, indent=2, default=date_serializer)
+                    
+                    # Show the mapped data
+                    with st.expander("View Mapped Data"):
+                        st.json(mapped_result)
+                    
+                    # Insert into database
+                    if st.button("Save to Database", key="save_to_db"):
+                        try:
+                            # Pass the file path to the insert function
+                            result = insert_data_from_mapped_json(mapped_file)
+                            if result.get("status") == "success":
+                                st.success("✅ Analysis saved successfully!")
+                                
+                                # Show the analysis results
+                                if "symptoms_analysis" in mapped_result:
+                                    analysis = mapped_result["symptoms_analysis"]
+                                    st.write("### Analysis Results")
+                                    
+                                    if "symptoms_identified" in analysis:
+                                        st.write("*Identified Symptoms:*")
+                                        for symptom in analysis["symptoms_identified"]:
+                                            st.write(f"- {symptom}")
+                                    
+                                    if "severity_analysis" in analysis:
+                                        st.write(f"*Severity Analysis:* {analysis['severity_analysis']}")
+                                    
+                                    if "recommended_specialists" in analysis:
+                                        st.write("*Recommended Medical Specialties:*")
+                                        for specialist in analysis["recommended_specialists"]:
+                                            st.write(f"- {specialist}")
+                                    
+                                    if "rationale" in analysis:
+                                        st.write(f"*Analysis Rationale:* {analysis['rationale']}")
+                                
+                                # Show appointment details if available
+                                if "appointment" in st.session_state.patient_data and "selected_doctor" in st.session_state.patient_data:
+                                    st.write("### Appointment Details")
+                                    appt = st.session_state.patient_data["appointment"]
+                                    doctor = st.session_state.patient_data["selected_doctor"]
+                                    st.write(f"🗓️ Date: {appt['date']}")
+                                    st.write(f"⏰ Time: {appt['time']}")
+                                    st.write(f"👨‍⚕️ Doctor: Dr. {doctor['name']}")
+                                    st.write(f"🏥 Hospital: {doctor['hospital']}")
+                                
+                                if st.button("Start New Analysis"):
+                                    # Clear session state
+                                    for key in list(st.session_state.keys()):
+                                        del st.session_state[key]
+                                    st.session_state.step = "intake"
+                                    st.rerun()
+                            else:
+                                st.error("❌ Failed to save analysis")
+                        except Exception as e:
+                            st.error(f"❌ Database error: {str(e)}")
+                except Exception as e:
+                    st.error(f"❌ Error preparing data: {str(e)}")
+                    # Add debugging information
+                    st.write("Debug info:")
+                    st.write("Patient data:", st.session_state.patient_data)
+            else:
+                st.error("No patient data available. Please complete the symptom analysis first.")
+                if st.button("Return to Symptom Analysis"):
+                    st.session_state.step = "intake"
+                    st.rerun()
+
+    except Exception as e:
+        st.error("An unexpected error occurred. Please try again or contact support if the issue persists.")
+        return
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        st.error("An unexpected error occurred. Please refresh the page or contact support if the issue persists.")
