@@ -856,7 +856,7 @@ def main():
         st.session_state.step = "intake"
     
     # Simplified steps
-    steps = ["intake", "db_insert"]
+    steps = ["intake", "specialist", "appointment", "db_insert"]
     current_step = steps.index(st.session_state.step) + 1
     progress = current_step / len(steps)
     
@@ -881,13 +881,87 @@ def main():
         
         patient_data, _, done = dynamic_medical_intake()
         if done:
-            # The symptom analysis and mapping are now handled in dynamic_medical_intake
-            pass
+            st.session_state.step = "specialist"
+            st.rerun()
+
+    elif st.session_state.step == "specialist":
+        st.markdown("""
+            <div class='step-header'>
+                <h2>Step 2: Specialist Recommendation</h2>
+                <p>Based on your symptoms, we'll recommend appropriate specialists</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Get specialist recommendations
+        specialists, rationale = recommend_specialist(st.session_state.patient_data)
+        
+        if specialists:
+            st.markdown("### Recommended Specialists")
+            for specialist in specialists:
+                st.write(f"👨‍⚕️ {specialist}")
+            
+            if rationale:
+                st.markdown("### Recommendation Rationale")
+                st.write(rationale)
+            
+            # Store recommendations in session state
+            st.session_state.specialist_recommendations = {
+                "specialists": specialists,
+                "rationale": rationale
+            }
+            
+            if st.button("Proceed to Appointment Booking"):
+                st.session_state.step = "appointment"
+                st.rerun()
+
+    elif st.session_state.step == "appointment":
+        st.markdown("""
+            <div class='step-header'>
+                <h2>Step 3: Schedule Appointment</h2>
+                <p>Book an appointment with your recommended specialist</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Show specialist recommendations again
+        if "specialist_recommendations" in st.session_state:
+            specialists = st.session_state.specialist_recommendations["specialists"]
+            
+            # Create appointment booking form
+            with st.form("appointment_form"):
+                selected_specialist = st.selectbox(
+                    "Select Specialist",
+                    specialists
+                )
+                
+                appointment_date = st.date_input(
+                    "Select Date",
+                    min_value=datetime.now().date()
+                )
+                
+                appointment_time = st.selectbox(
+                    "Select Time",
+                    ["9:00 AM", "10:00 AM", "11:00 AM", "2:00 PM", "3:00 PM", "4:00 PM"]
+                )
+                
+                submit_appointment = st.form_submit_button("Book Appointment")
+                
+                if submit_appointment:
+                    # Add appointment info to patient data
+                    st.session_state.patient_data["appointment"] = {
+                        "specialist": selected_specialist,
+                        "date": appointment_date.strftime("%Y-%m-%d"),
+                        "time": appointment_time
+                    }
+                    
+                    st.success("✅ Appointment scheduled successfully!")
+                    if st.button("Proceed to Save Data"):
+                        st.session_state.step = "db_insert"
+                        st.rerun()
 
     elif st.session_state.step == "db_insert":
         st.markdown("""
             <div class='step-header'>
-                <h2>Step 2: Saving Analysis</h2>
+                <h2>Step 4: Saving Analysis</h2>
                 <p>Saving your symptom analysis and recommendations</p>
             </div>
         """, unsafe_allow_html=True)
@@ -900,6 +974,10 @@ def main():
                     "patient_data": st.session_state.patient_data,
                     "status": "complete"
                 }
+                
+                # Add specialist recommendations if available
+                if "specialist_recommendations" in st.session_state:
+                    final_json["specialist_recommendations"] = st.session_state.specialist_recommendations
                 
                 # Map the data to DB schema
                 mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_json)
@@ -941,6 +1019,14 @@ def main():
                                 
                                 if "rationale" in analysis:
                                     st.write(f"*Analysis Rationale:* {analysis['rationale']}")
+                            
+                            # Show appointment details if available
+                            if "appointment" in st.session_state.patient_data:
+                                st.write("### Appointment Details")
+                                appt = st.session_state.patient_data["appointment"]
+                                st.write(f"🗓️ Date: {appt['date']}")
+                                st.write(f"⏰ Time: {appt['time']}")
+                                st.write(f"👨‍⚕️ Specialist: {appt['specialist']}")
                             
                             if st.button("Start New Analysis"):
                                 # Clear session state
