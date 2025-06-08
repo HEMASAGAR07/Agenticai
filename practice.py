@@ -1098,35 +1098,36 @@ def get_all_slots_status(doctor_id, date):
             SELECT 
                 d.available_slots,
                 d.available_days,
-                GROUP_CONCAT(DISTINCT a.appointment_time) as booked_times
+                a.appointment_time,
+                CASE WHEN a.appointment_time IS NOT NULL THEN 'booked' ELSE 'available' END as slot_status
             FROM doctors d
             LEFT JOIN appointments a ON d.doctor_id = a.doctor_id 
                 AND a.appointment_date = %s
                 AND a.status = 1
             WHERE d.doctor_id = %s
-            GROUP BY d.doctor_id
         """, (date, doctor_id))
         
-        result = cursor.fetchone()
-        if not result or not result['available_slots']:
+        results = cursor.fetchall()
+        if not results:
             return [], []
+            
+        # Get doctor's schedule
+        available_slots = json.loads(results[0]['available_slots']) if results[0]['available_slots'] else []
+        available_days = results[0]['available_days'].split(',') if results[0]['available_days'] else []
         
         # Check if the selected date's day is in available days
         selected_day = datetime.strptime(date, "%Y-%m-%d").strftime("%A")[:3]
-        available_days = [day.strip()[:3] for day in result['available_days'].split(',')]
-        
-        if selected_day not in available_days:
+        if selected_day not in [day.strip()[:3] for day in available_days]:
             return [], []
         
-        # Get all slots and booked slots
-        all_slots = json.loads(result['available_slots'])
-        booked_slots = result['booked_times'].split(',') if result['booked_times'] else []
+        # Create sets for O(1) lookup
+        booked_slots_24h = {row['appointment_time'] for row in results if row['appointment_time']}
         
-        # Prepare available and booked slots lists
-        available_slots = []
-        unavailable_slots = []
+        # Process all slots
+        available = []
+        unavailable = []
         
-        for slot in all_slots:
+        for slot in available_slots:
             time_24h = convert_time_format(slot)
             if not time_24h:
                 continue
@@ -1135,12 +1136,16 @@ def get_all_slots_status(doctor_id, date):
             time_obj = datetime.strptime(time_24h, "%H:%M")
             display_time = time_obj.strftime("%I:%M %p").lstrip("0")
             
-            if time_24h in booked_slots:
-                unavailable_slots.append(display_time)
+            if time_24h in booked_slots_24h:
+                unavailable.append({"time": display_time, "status": "booked"})
             else:
-                available_slots.append(display_time)
+                available.append({"time": display_time, "status": "available"})
         
-        return sorted(available_slots), sorted(unavailable_slots)
+        # Sort both lists by time
+        available.sort(key=lambda x: datetime.strptime(x["time"], "%I:%M %p"))
+        unavailable.sort(key=lambda x: datetime.strptime(x["time"], "%I:%M %p"))
+        
+        return available, unavailable
     except Exception as e:
         st.error(f"Error getting slots status: {str(e)}")
         return [], []
@@ -1313,14 +1318,16 @@ def main():
                         st.write("### 📅 Appointment Schedule")
                         st.write(f"Schedule for {appointment_date.strftime('%A, %B %d, %Y')}")
                         
-                        col1, col2 = st.columns([2, 1])
+                        # Create two columns for the layout
+                        col1, col2 = st.columns([3, 2])
                         
                         with col1:
                             if available_slots:
-                                st.success(f"✅ Available Slots: {len(available_slots)}")
+                                st.success(f"✅ Available Time Slots ({len(available_slots)})")
+                                # Only show available times in the selection
                                 appointment_time = st.selectbox(
-                                    "Select Available Time",
-                                    options=available_slots,
+                                    "Select a Time",
+                                    options=[slot["time"] for slot in available_slots],
                                     help="Choose from available time slots"
                                 )
                             else:
@@ -1329,16 +1336,25 @@ def main():
                         
                         with col2:
                             if unavailable_slots:
-                                st.warning("⚠️ Already Booked:")
+                                st.warning("⚠️ Unavailable Time Slots:")
                                 for slot in unavailable_slots:
-                                    st.write(f"❌ {slot}")
-                                st.info("Please avoid selecting these times")
+                                    st.markdown(f"❌ **{slot['time']}** - Already Booked")
+                                st.info("These slots cannot be selected")
                             else:
-                                st.success("No booked slots for this date")
+                                st.success("All slots are available!")
                         
+                        # Show helpful message if no available slots
                         if not available_slots:
-                            st.info("💡 Try selecting a different date or check another doctor's availability")
-                            appointment_time = None
+                            st.info("💡 Suggestion: Try selecting a different date or check another doctor's availability")
+                            
+                        # Show total slots info
+                        total_slots = len(available_slots) + len(unavailable_slots)
+                        if total_slots > 0:
+                            st.write(f"Total slots: {total_slots} | Available: {len(available_slots)} | Booked: {len(unavailable_slots)}")
+                            
+                            # Show availability percentage
+                            availability_percent = (len(available_slots) / total_slots) * 100
+                            st.progress(availability_percent / 100, f"Slot Availability: {availability_percent:.1f}%")
                     
                     # Include the "Proceed to Save Data" in the form submit
                     submit_appointment = st.form_submit_button("Book Appointment and Proceed")
