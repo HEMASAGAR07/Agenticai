@@ -1373,6 +1373,10 @@ def main():
                             del st.session_state.selected_time_24h
                         st.rerun()
                 
+                # Store current doctor selection
+                if "current_doctor" not in st.session_state:
+                    st.session_state.current_doctor = None
+                
                 # Create appointment booking form
                 appointment_form_key = f"appointment_form_{st.session_state.form_key}_{st.session_state.appointment_date_key}"
                 with st.form(key=appointment_form_key):
@@ -1391,6 +1395,15 @@ def main():
 
                     if selected_doctor_name:
                         selected_doctor = doctor_options[selected_doctor_name]
+                        
+                        # Check if doctor selection changed
+                        if st.session_state.current_doctor != selected_doctor["doctor_id"]:
+                            st.session_state.current_doctor = selected_doctor["doctor_id"]
+                            submit_button = st.form_submit_button("Update Schedule")
+                            if submit_button:
+                                st.session_state.form_key = st.session_state.get('form_key', 0) + 1
+                                st.rerun()
+                            return
                         
                         # Get available slots first
                         available_slots = get_all_slots_status(
@@ -1491,9 +1504,9 @@ def main():
                             st.error("No available slots for this date")
                             st.info("💡 Suggestion: Try selecting a different date or check another doctor's availability")
                             st.form_submit_button("Book Appointment", disabled=True)
-            else:
-                st.error("No doctors available at the moment. Please try again later.")
-                return
+                else:
+                    st.error("No doctors available at the moment. Please try again later.")
+                    return
 
     elif st.session_state.step == "db_insert":
         st.markdown("""
