@@ -319,7 +319,18 @@ def dynamic_medical_intake():
                 if st.session_state.db_data_retrieved:
                     final_output["patient_data"].update(st.session_state.patient_data)
                 st.success("✅ Medical intake completed successfully!")
-                st.session_state.step = "db_insert"  # Progress to next step
+                
+                # Store the final data in session state
+                st.session_state.final_patient_json = {
+                    "patient_data": final_output.get("patient_data", {}),
+                    "summary": final_output.get("summary", ""),
+                    "status": "complete"
+                }
+                
+                # Show proceed button
+                if st.button("Proceed to Save Data"):
+                    st.session_state.step = "db_insert"
+                    st.rerun()
                 return final_output.get("patient_data", {}), final_output.get("summary", ""), True
             st.rerun()
         return {}, "", False
@@ -847,14 +858,14 @@ def main():
         """, unsafe_allow_html=True)
         
         patient_data, summary, done = dynamic_medical_intake()
-        if done:
+        if done and not st.session_state.health_assessment_complete:
             st.session_state.final_patient_json = {
                 "patient_data": patient_data,
                 "summary": summary,
                 "status": "complete"
             }
-            # Step transition is handled in dynamic_medical_intake
-            st.rerun()
+            st.success("✅ Medical intake completed successfully!")
+            st.button("Continue to Save Data", key="continue_to_save")
 
     elif st.session_state.step == "db_insert":
         st.markdown("""
@@ -864,31 +875,43 @@ def main():
             </div>
         """, unsafe_allow_html=True)
         
-        # Map the data to DB schema
-        try:
-            mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(st.session_state.final_patient_json)
-            with open("mapped_output.json", "w") as f:
-                json.dump(mapped_result, f, indent=2)
-            
-            # Show the mapped data
-            with st.expander("View Mapped Data"):
-                st.json(mapped_result)
-            
-            # Insert into database
-            if st.button("Save to Database"):
-                try:
-                    result = insert_data_from_mapped_json(mapped_result)
-                    if result.get("status") == "success":
-                        st.success("✅ Analysis saved successfully!")
-                        st.session_state.step = "done"
+        if not st.session_state.final_patient_json:
+            st.error("❌ No patient data available. Please complete the symptom analysis first.")
+            if st.button("Return to Symptom Analysis"):
+                st.session_state.step = "intake"
+                st.rerun()
+        else:
+            # Map the data to DB schema
+            try:
+                mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(st.session_state.final_patient_json)
+                with open("mapped_output.json", "w") as f:
+                    json.dump(mapped_result, f, indent=2)
+                
+                # Show the mapped data
+                with st.expander("View Mapped Data"):
+                    st.json(mapped_result)
+                
+                # Insert into database
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    if st.button("← Back to Analysis"):
+                        st.session_state.step = "intake"
                         st.rerun()
-                    else:
-                        st.error("❌ Failed to save analysis")
-                except Exception as e:
-                    st.error(f"❌ Database error: {str(e)}")
-                    
-        except Exception as e:
-            st.error(f"❌ Error mapping data: {str(e)}")
+                with col2:
+                    if st.button("Save to Database →"):
+                        try:
+                            result = insert_data_from_mapped_json(mapped_result)
+                            if result.get("status") == "success":
+                                st.success("✅ Analysis saved successfully!")
+                                st.session_state.step = "done"
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to save analysis")
+                        except Exception as e:
+                            st.error(f"❌ Database error: {str(e)}")
+                        
+            except Exception as e:
+                st.error(f"❌ Error mapping data: {str(e)}")
 
     else:  # done step
         st.markdown("""
