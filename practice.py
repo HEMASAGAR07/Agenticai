@@ -1387,8 +1387,10 @@ def main():
                         st.rerun()
 
                 # Show appointment booking form only if doctor is selected
-                if selected_doctor_name and st.session_state.get('current_doctor'):
-                    current_doctor = st.session_state.current_doctor
+                if selected_doctor_name:
+                    # Get the current doctor, either from form or session state
+                    current_doctor = (st.session_state.get('current_doctor') if st.session_state.get('current_doctor') 
+                                    else doctor_options[selected_doctor_name])
                     
                     # Get available slots
                     available_slots = get_all_slots_status(
@@ -1433,10 +1435,9 @@ def main():
                                 if selected_slot:
                                     st.session_state.selected_time_24h = selected_slot["time_24h"]
                             
-                            # Show submit button
-                            submit_appointment = st.form_submit_button("Book Appointment")
+                            book_appointment = st.form_submit_button("Book Appointment")
                             
-                            if submit_appointment:
+                            if book_appointment:
                                 if not hasattr(st.session_state, 'selected_time_24h'):
                                     st.error("Please select an appointment time.")
                                     return
