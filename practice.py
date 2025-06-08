@@ -10,6 +10,7 @@ import pymysql
 from inserting_JSON_to_DB import db_config,insert_data_from_mapped_json, save_operation_state, handle_table_operation, get_last_update_timestamp
 from booking import book_appointment_from_json
 import uuid
+from datetime import date, datetime
 
 # Custom styling
 st.set_page_config(
@@ -832,6 +833,13 @@ def recover_failed_operation(operation_id):
             conn.close()
 
 
+def date_serializer(obj):
+    """Custom JSON serializer for handling dates"""
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+
 def main():
     # Header with logo and title
     col1, col2 = st.columns([1, 4])
@@ -896,9 +904,9 @@ def main():
                 # Map the data to DB schema
                 mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_json)
                 
-                # Save mapped data
+                # Save mapped data with date serialization
                 with open("mapped_output.json", "w") as f:
-                    json.dump(mapped_result, f, indent=2)
+                    json.dump(mapped_result, f, indent=2, default=date_serializer)
                 
                 # Show the mapped data
                 with st.expander("View Mapped Data"):
@@ -944,6 +952,9 @@ def main():
                         st.error(f"❌ Database error: {str(e)}")
             except Exception as e:
                 st.error(f"❌ Error preparing data: {str(e)}")
+                # Add debugging information
+                st.write("Debug info:")
+                st.write("Patient data:", st.session_state.patient_data)
         else:
             st.error("No patient data available. Please complete the symptom analysis first.")
             if st.button("Return to Symptom Analysis"):
