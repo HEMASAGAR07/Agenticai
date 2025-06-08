@@ -212,96 +212,52 @@ def insert_data_from_mapped_json(json_file_path):
         # Load the JSON file
         mapped_data = load_json_file(json_file_path)
         
+        if not isinstance(mapped_data, list):
+            raise ValueError("Expected mapped data to be a list of table operations")
+        
         # Connect to the database
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
 
-        # Get patient info
-        patient_info = mapped_data.get("patient_info", {})
+        patient_id = None
         
-        # Insert into patients table
-        patient_query = """
-            INSERT INTO patients (full_name, email, phone, DOB, gender, address)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """
-        patient_values = (
-            patient_info.get("name"),  # We keep "name" here as it comes from the mapped data
-            patient_info.get("email"),
-            patient_info.get("phone"),
-            patient_info.get("dob"),
-            patient_info.get("gender"),
-            patient_info.get("address")
-        )
-        cursor.execute(patient_query, patient_values)
-        patient_id = cursor.lastrowid
-
-        # Insert current symptoms into symptoms table
-        current_symptoms = mapped_data.get("current_symptoms", [])
-        if current_symptoms:
-            symptoms_query = """
-                INSERT INTO symptoms 
-                (patient_id, symptom_description, severity, duration) 
-                VALUES (%s, %s, %s, %s)
-            """
-            for symptom in current_symptoms:
-                symptom_values = (
-                    patient_id,
-                    symptom.get("description"),
-                    symptom.get("severity"),
-                    symptom.get("duration")
-                )
-                cursor.execute(symptoms_query, symptom_values)
-
-        # Store specialist recommendations and appointment in the notes field
-        notes = []
-        
-        # Add specialist recommendations if available
-        if "specialist_recommendations" in mapped_data:
-            recommendations = mapped_data["specialist_recommendations"]
-            specialists = recommendations.get("specialists", [])
-            rationale = recommendations.get("rationale", "")
+        # Process each table operation
+        for table_op in mapped_data:
+            table_name = table_op.get("table")
+            if not table_name:
+                continue
+                
+            if table_name == "patients":
+                # Insert patient data
+                columns = table_op.get("columns", {})
+                if columns:
+                    col_names = ", ".join([f"`{key}`" for key in columns.keys()])
+                    placeholders = ", ".join(["%s"] * len(columns))
+                    query = f"INSERT INTO `{table_name}` ({col_names}) VALUES ({placeholders})"
+                    values = list(columns.values())
+                    cursor.execute(query, values)
+                    patient_id = cursor.lastrowid
             
-            if specialists:
-                notes.append("Recommended Specialists:")
-                for specialist in specialists:
-                    notes.append(f"- {specialist}")
-                if rationale:
-                    notes.append(f"\nRationale: {rationale}")
-
-        # Add appointment details if available
-        if "appointment" in mapped_data:
-            appointment = mapped_data["appointment"]
-            notes.append("\nAppointment Details:")
-            notes.append(f"- Specialist: {appointment.get('specialist', '')}")
-            notes.append(f"- Date: {appointment.get('date', '')}")
-            notes.append(f"- Time: {appointment.get('time', '')}")
-            notes.append(f"- Status: {appointment.get('status', 'scheduled')}")
-
-        # If we have any notes, store them in the symptoms table
-        if notes:
-            notes_text = "\n".join(notes)
-            notes_query = """
-                INSERT INTO symptoms 
-                (patient_id, symptom_description, severity, duration) 
-                VALUES (%s, %s, %s, %s)
-            """
-            cursor.execute(notes_query, (
-                patient_id,
-                notes_text,
-                "info",  # Using "info" as severity to indicate this is informational
-                "N/A"    # Duration not applicable for notes
-            ))
+            elif table_name == "symptoms" and patient_id:
+                # Insert symptoms data
+                records = table_op.get("records", [])
+                for record in records:
+                    # Add patient_id to the record
+                    record["patient_id"] = patient_id
+                    col_names = ", ".join([f"`{key}`" for key in record.keys()])
+                    placeholders = ", ".join(["%s"] * len(record))
+                    query = f"INSERT INTO `{table_name}` ({col_names}) VALUES ({placeholders})"
+                    values = list(record.values())
+                    cursor.execute(query, values)
 
         # Commit the transaction
         conn.commit()
-        
         return {"status": "success", "patient_id": patient_id}
-
+        
     except Exception as e:
         if 'conn' in locals():
             conn.rollback()
         raise Exception(f"Database error: {str(e)}")
-    
     finally:
         if 'cursor' in locals():
             cursor.close()
