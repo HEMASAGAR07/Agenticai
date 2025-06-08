@@ -268,15 +268,27 @@ def insert_data_from_mapped_json(json_file_path):
                     cursor.execute(query, values)
                     patient_id = cursor.lastrowid
             
+            elif table_name == "appointments" and patient_id:
+                # Insert appointment data
+                columns = table_op.get("columns", {})
+                if columns:
+                    # Add patient_id to the appointment
+                    columns["patient_id"] = patient_id
+                    col_names = ", ".join([f"`{key}`" for key in columns.keys()])
+                    placeholders = ", ".join(["%s"] * len(columns))
+                    query = f"INSERT INTO `{table_name}` ({col_names}) VALUES ({placeholders})"
+                    values = list(columns.values())
+                    cursor.execute(query, values)
+            
             elif table_name == "symptoms" and patient_id:
                 # Insert symptoms data
                 records = table_op.get("records", [])
                 for record in records:
                     # Add patient_id to the record
                     record["patient_id"] = patient_id
-                    # Summarize symptom description if it's too long
+                    # Handle symptom description
                     if "symptom_description" in record:
-                        record["symptom_description"] = summarize_symptom_description(str(record["symptom_description"]))
+                        record["symptom_description"] = str(record["symptom_description"])[:65535]  # Limit to MEDIUMTEXT size
                     col_names = ", ".join([f"`{key}`" for key in record.keys()])
                     placeholders = ", ".join(["%s"] * len(record))
                     query = f"INSERT INTO `{table_name}` ({col_names}) VALUES ({placeholders})"
