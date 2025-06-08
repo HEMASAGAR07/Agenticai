@@ -321,14 +321,22 @@ def dynamic_medical_intake():
             st.session_state.intake_history.append(("bot", reply.text.strip()))
             
             # Check if health intake is complete
-            final_output = extract_json(reply.text)
-            if final_output.get("status") == "complete":
-                # Update patient data with collected symptoms
-                if st.session_state.db_data_retrieved:
-                    final_output["patient_data"].update(st.session_state.patient_data)
-                st.session_state.patient_data = final_output.get("patient_data", {})
-                st.session_state.symptoms_collected = True
-                st.rerun()
+            try:
+                final_output = extract_json(reply.text)
+                if final_output and isinstance(final_output, dict) and final_output.get("status") == "complete":
+                    # Create a new patient data dictionary with existing and new data
+                    updated_patient_data = st.session_state.patient_data.copy()
+                    
+                    # If there's new patient data in the final output, update our existing data
+                    if "patient_data" in final_output and isinstance(final_output["patient_data"], dict):
+                        updated_patient_data.update(final_output["patient_data"])
+                    
+                    # Store the updated data back in session state
+                    st.session_state.patient_data = updated_patient_data
+                    st.session_state.symptoms_collected = True
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error processing response: {str(e)}")
             st.rerun()
         return {}, "", False
 
@@ -417,8 +425,15 @@ CONVERSATION FLOW:
    - Don't ignore simple answers
 
 4. When Complete:
-   - Return a JSON with "status": "complete" and all collected information
-   - Include severity and duration for each symptom
+   - Return a JSON with "status": "complete" and all collected information in this format:
+   {
+     "status": "complete",
+     "patient_data": {
+       "symptoms": [{"description": "...", "severity": "...", "duration": "..."}],
+       "other_concerns": "...",
+       "additional_notes": "..."
+     }
+   }
 
 Begin with: "What symptoms or health concerns are you experiencing today? If none, please say 'no'."
 """
