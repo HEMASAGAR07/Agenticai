@@ -5,9 +5,14 @@ from dotenv import load_dotenv
 import uuid
 import mysql.connector
 from datetime import datetime
+import google.generativeai as genai
 
 # Load environment variables from .env file (if you use one)
 load_dotenv()
+
+# Configure Gemini
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 db_config = {
     "host": os.getenv("DB_HOST"),
@@ -208,6 +213,26 @@ def load_json_file(file_path):
     except Exception as e:
         raise Exception(f"Error loading JSON file: {str(e)}")
 
+def summarize_symptom_description(description):
+    """Use LLM to summarize long symptom descriptions"""
+    try:
+        if len(description) < 1000:  # Only summarize if it's long
+            return description
+            
+        prompt = f"""
+Summarize the following medical symptom description in a concise way (maximum 200 characters) while preserving all important medical information:
+
+{description}
+
+Keep the summary professional and medically accurate. Include severity and duration if mentioned.
+"""
+        response = model.generate_content(prompt)
+        summary = response.text.strip()
+        return summary[:200]  # Ensure it doesn't exceed 200 chars
+    except Exception as e:
+        print(f"Warning: Error summarizing description: {str(e)}")
+        return description[:200]  # Fallback to simple truncation
+
 def insert_data_from_mapped_json(json_file_path):
     """Insert data from mapped JSON file into the database"""
     try:
@@ -249,10 +274,9 @@ def insert_data_from_mapped_json(json_file_path):
                 for record in records:
                     # Add patient_id to the record
                     record["patient_id"] = patient_id
-                    # Ensure symptom_description is properly truncated if needed
+                    # Summarize symptom description if it's too long
                     if "symptom_description" in record:
-                        # Truncate to 65535 characters (max for TEXT)
-                        record["symptom_description"] = str(record["symptom_description"])[:65535]
+                        record["symptom_description"] = summarize_symptom_description(str(record["symptom_description"]))
                     col_names = ", ".join([f"`{key}`" for key in record.keys()])
                     placeholders = ", ".join(["%s"] * len(record))
                     query = f"INSERT INTO `{table_name}` ({col_names}) VALUES ({placeholders})"
