@@ -1345,7 +1345,7 @@ def main():
                 st.markdown("### 👨‍⚕️ Available Doctors")
                 
                 # Create appointment booking form
-                with st.form(key="appointment_form"):
+                with st.form(key=f"appointment_form_{st.session_state.get('form_key', 0)}"):
                     # Create a formatted display name for each doctor
                     doctor_options = {
                         f"Dr. {doc['full_name']} - {doc['specialization']} ({doc['experience_years']} years) - {doc['hospital_affiliation']}": doc 
@@ -1355,6 +1355,7 @@ def main():
                     selected_doctor_name = st.selectbox(
                         "Select Doctor",
                         options=list(doctor_options.keys()),
+                        key=f"doctor_select_{st.session_state.get('form_key', 0)}",
                         help="Choose a doctor from the recommended specialists"
                     )
                     
@@ -1383,8 +1384,18 @@ def main():
                     appointment_date = st.date_input(
                         "Select Date",
                         min_value=today + timedelta(days=1),
-                        value=today + timedelta(days=1)
+                        value=today + timedelta(days=1),
+                        key=f"date_select_{st.session_state.get('form_key', 0)}"
                     )
+
+                    # Store the selected date in session state
+                    if "selected_date" not in st.session_state or st.session_state.selected_date != appointment_date:
+                        st.session_state.selected_date = appointment_date
+                        # Increment form key to force refresh
+                        st.session_state.form_key = st.session_state.get('form_key', 0) + 1
+                        # Clear previous selection
+                        if 'selected_time_24h' in st.session_state:
+                            del st.session_state.selected_time_24h
                     
                     # Show available slots for selected doctor
                     if selected_doctor_name:
@@ -1405,6 +1416,7 @@ def main():
                             appointment_time = st.selectbox(
                                 "Select a Time",
                                 options=[slot["time"] for slot in available_slots],
+                                key=f"time_select_{st.session_state.get('form_key', 0)}",
                                 help="Choose from available time slots"
                             )
                             
@@ -1433,6 +1445,8 @@ def main():
                                 
                                 if not any(slot["time_24h"] == st.session_state.selected_time_24h for slot in current_slots):
                                     st.error("❌ This slot is no longer available. Please select a different time.")
+                                    # Force form refresh
+                                    st.session_state.form_key = st.session_state.get('form_key', 0) + 1
                                     st.rerun()
                                     return
                                 
@@ -1467,6 +1481,8 @@ def main():
                                     st.rerun()
                                 else:
                                     st.error(f"❌ {message}")
+                                    # Force form refresh
+                                    st.session_state.form_key = st.session_state.get('form_key', 0) + 1
                                     st.rerun()
                         else:
                             st.error("No available slots for this date")
