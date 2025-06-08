@@ -295,15 +295,29 @@ def get_available_doctors():
                 d.available_days,
                 d.available_slots,
                 GROUP_CONCAT(
-                    CONCAT(a.appointment_date, ' ', a.appointment_time)
+                    DISTINCT CONCAT(a.appointment_date, ' ', a.appointment_time)
                 ) as booked_slots
             FROM doctors d
-            LEFT JOIN appointments a ON d.doctor_id = a.doctor_id
+            LEFT JOIN appointments a ON d.doctor_id = a.doctor_id AND a.status = 1
             GROUP BY d.doctor_id
             ORDER BY d.full_name
         """)
         
         doctors = cursor.fetchall()
+        
+        # Process each doctor's booked slots
+        for doctor in doctors:
+            if doctor['booked_slots']:
+                doctor['booked_slots'] = set(doctor['booked_slots'].split(','))
+            else:
+                doctor['booked_slots'] = set()
+                
+            # Convert available_slots from JSON if present
+            if doctor['available_slots']:
+                doctor['available_slots'] = json.loads(doctor['available_slots'])
+            else:
+                doctor['available_slots'] = []
+                
         return doctors
     except Exception as e:
         st.error(f"Error fetching doctors: {str(e)}")
@@ -1051,13 +1065,17 @@ def get_all_slots_status(doctor_id, date):
         conn = pymysql.connect(**db_config)
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         
-        # First get doctor's schedule
+        # Get doctor's schedule and booked appointments in one query
         cursor.execute("""
-            SELECT d.available_slots, d.available_days,
-                   GROUP_CONCAT(DISTINCT a.appointment_time) as booked_slots
+            SELECT 
+                d.available_slots,
+                d.available_days,
+                GROUP_CONCAT(
+                    DISTINCT a.appointment_time
+                ) as booked_slots
             FROM doctors d
             LEFT JOIN appointments a ON d.doctor_id = a.doctor_id 
-                AND a.appointment_date = %s
+                AND a.appointment_date = %s 
                 AND a.status = 1
             WHERE d.doctor_id = %s
             GROUP BY d.doctor_id
@@ -1065,24 +1083,23 @@ def get_all_slots_status(doctor_id, date):
         
         result = cursor.fetchone()
         if not result or not result['available_slots']:
-            return [], []
+            return []
             
         # Check if the selected date's day is in available days
         selected_day = datetime.strptime(date, "%Y-%m-%d").strftime("%A")[:3]
         available_days = [day.strip()[:3] for day in result['available_days'].split(',')]
         
         if selected_day not in available_days:
-            return [], []
+            return []
         
-        # Get all booked slots for this date
+        # Get set of booked slots
         booked_slots = set()
         if result['booked_slots']:
             booked_slots = {slot.strip() for slot in result['booked_slots'].split(',')}
         
         # Process all slots from doctor's schedule
         all_slots = json.loads(result['available_slots'])
-        available = []
-        unavailable = []
+        available_slots = []
         
         for slot in all_slots:
             # Convert to 24-hour format for comparison
@@ -1090,31 +1107,28 @@ def get_all_slots_status(doctor_id, date):
             if not time_24h:
                 continue
                 
+            # Skip if slot is booked
+            if time_24h in booked_slots:
+                continue
+                
             # Convert to 12-hour format for display
             time_obj = datetime.strptime(time_24h, "%H:%M")
             display_time = time_obj.strftime("%I:%M %p").lstrip("0")
             
-            if time_24h in booked_slots:
-                unavailable.append({
-                    "time": display_time, 
-                    "time_24h": time_24h, 
-                    "status": "booked"
-                })
-            else:
-                available.append({
-                    "time": display_time, 
-                    "time_24h": time_24h, 
-                    "status": "available"
-                })
+            # Only add available slots
+            available_slots.append({
+                "time": display_time,
+                "time_24h": time_24h,
+                "status": "available"
+            })
         
-        # Sort both lists by time
-        available.sort(key=lambda x: datetime.strptime(x["time"], "%I:%M %p"))
-        unavailable.sort(key=lambda x: datetime.strptime(x["time"], "%I:%M %p"))
+        # Sort available slots by time
+        available_slots.sort(key=lambda x: datetime.strptime(x["time"], "%I:%M %p"))
+        return available_slots
         
-        return available, unavailable
     except Exception as e:
         st.error(f"Error getting slots status: {str(e)}")
-        return [], []
+        return []
     finally:
         if 'cursor' in locals():
             cursor.close()
@@ -1322,12 +1336,12 @@ def main():
                         value=today + timedelta(days=1)
                     )
                     
-                    # Show available and booked slots for selected doctor
+                    # Show available slots for selected doctor
                     if selected_doctor_name:
                         selected_doctor = doctor_options[selected_doctor_name]
                         
-                        # Get available and unavailable slots
-                        available_slots, unavailable_slots = get_all_slots_status(
+                        # Get only available slots
+                        available_slots = get_all_slots_status(
                             selected_doctor["doctor_id"], 
                             appointment_date.strftime("%Y-%m-%d")
                         )
@@ -1335,100 +1349,71 @@ def main():
                         st.write("### 📅 Appointment Schedule")
                         st.write(f"Schedule for {appointment_date.strftime('%A, %B %d, %Y')}")
                         
-                        # Create two columns for the layout
-                        col1, col2 = st.columns([3, 2])
+                        if available_slots:
+                            st.success(f"✅ Available Time Slots ({len(available_slots)})")
+                            # Show available times in the selection
+                            appointment_time = st.selectbox(
+                                "Select a Time",
+                                options=[slot["time"] for slot in available_slots],
+                                help="Choose from available time slots"
+                            )
+                            
+                            # Store the 24h time format
+                            if appointment_time:
+                                selected_slot = next(
+                                    (slot for slot in available_slots if slot["time"] == appointment_time),
+                                    None
+                                )
+                                if selected_slot:
+                                    st.session_state.selected_time_24h = selected_slot["time_24h"]
+                        else:
+                            st.error("No available slots for this date")
+                            st.info("💡 Suggestion: Try selecting a different date or check another doctor's availability")
+                            appointment_time = None
                         
-                        with col1:
-                            if available_slots:
-                                st.success(f"✅ Available Time Slots ({len(available_slots)})")
-                                # Only show available times in the selection
-                                appointment_time = st.selectbox(
-                                    "Select a Time",
-                                    options=[slot["time"] for slot in available_slots],
-                                    help="Choose from available time slots"
+                        # Show submit button only if slots are available
+                        if available_slots:
+                            submit_appointment = st.form_submit_button("Book Appointment and Proceed")
+                            
+                            if submit_appointment and appointment_time:
+                                # Get the 24h time format from session state
+                                time_24h = getattr(st.session_state, 'selected_time_24h', None)
+                                if not time_24h:
+                                    st.error("Error with time format. Please try selecting the time again.")
+                                    return
+                                
+                                # Try to reserve the slot
+                                success, message = reserve_appointment_slot(
+                                    selected_doctor["doctor_id"],
+                                    appointment_date.strftime("%Y-%m-%d"),
+                                    time_24h,
+                                    st.session_state.patient_data.get("email", "")
                                 )
                                 
-                                # Store both display time and 24h time
-                                if appointment_time:
-                                    selected_slot = next(
-                                        (slot for slot in available_slots if slot["time"] == appointment_time), 
-                                        None
-                                    )
-                                    if selected_slot:
-                                        st.session_state.selected_time_24h = selected_slot["time_24h"]
-                            else:
-                                st.error("No available slots for this date")
-                                appointment_time = None
-                        
-                        with col2:
-                            if unavailable_slots:
-                                st.warning(f"⚠️ Booked Time Slots ({len(unavailable_slots)}):")
-                                for slot in unavailable_slots:
-                                    st.markdown(f"❌ **{slot['time']}** - Already Booked")
-                            else:
-                                st.success("All slots are available!")
-                        
-                        # Show helpful message if no available slots
-                        if not available_slots:
-                            st.info("💡 Suggestion: Try selecting a different date or check another doctor's availability")
-                            
-                        # Show total slots info
-                        total_slots = len(available_slots) + len(unavailable_slots)
-                        if total_slots > 0:
-                            st.write(f"Total slots: {total_slots} | Available: {len(available_slots)} | Booked: {len(unavailable_slots)}")
-                            
-                            # Show availability percentage with color coding
-                            availability_percent = (len(available_slots) / total_slots) * 100
-                            if availability_percent > 60:
-                                st.success(f"Slot Availability: {availability_percent:.1f}%")
-                            elif availability_percent > 30:
-                                st.warning(f"Slot Availability: {availability_percent:.1f}%")
-                            else:
-                                st.error(f"Slot Availability: {availability_percent:.1f}%")
-                            st.progress(availability_percent / 100)
-                    
-                    # Include the "Proceed to Save Data" in the form submit
-                    submit_appointment = st.form_submit_button("Book Appointment and Proceed")
-                    
-                    if submit_appointment and selected_doctor_name and appointment_time:
-                        # Get the 24h time format from session state
-                        time_24h = getattr(st.session_state, 'selected_time_24h', None)
-                        if not time_24h:
-                            st.error("Error with time format. Please try selecting the time again.")
-                            return
-                            
-                        # Try to reserve the slot
-                        success, message = reserve_appointment_slot(
-                            selected_doctor["doctor_id"],
-                            appointment_date.strftime("%Y-%m-%d"),
-                            time_24h,
-                            st.session_state.patient_data.get("email", "")
-                        )
-                        
-                        if success:
-                            st.success(f"✅ {message}")
-                            
-                            # Add appointment info to patient data
-                            st.session_state.patient_data["appointment"] = {
-                                "date": appointment_date.strftime("%Y-%m-%d"),
-                                "time": time_24h,
-                                "status": "scheduled"
-                            }
-                            
-                            # Add selected doctor info
-                            st.session_state.patient_data["selected_doctor"] = {
-                                "doctor_id": selected_doctor["doctor_id"],
-                                "name": selected_doctor["full_name"],
-                                "specialization": selected_doctor["specialization"],
-                                "hospital": selected_doctor["hospital_affiliation"]
-                            }
-                            
-                            # Move to next step
-                            st.session_state.step = "db_insert"
-                            st.rerun()
-                        else:
-                            st.error(f"❌ {message}")
-                            st.error("Please select a different time slot.")
+                                if success:
+                                    st.success(f"✅ {message}")
+                                    
+                                    # Add appointment info to patient data
+                                    st.session_state.patient_data["appointment"] = {
+                                        "date": appointment_date.strftime("%Y-%m-%d"),
+                                        "time": time_24h,
+                                        "status": "scheduled"
+                                    }
+                                    
+                                    # Add selected doctor info
+                                    st.session_state.patient_data["selected_doctor"] = {
+                                        "doctor_id": selected_doctor["doctor_id"],
+                                        "name": selected_doctor["full_name"],
+                                        "specialization": selected_doctor["specialization"],
+                                        "hospital": selected_doctor["hospital_affiliation"]
+                                    }
+                                    
+                                    # Move to next step
+                                    st.session_state.step = "db_insert"
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {message}")
+                                    st.error("Please select a different time slot.")
             else:
                 st.error("No doctors available at the moment. Please try again later.")
                 return
