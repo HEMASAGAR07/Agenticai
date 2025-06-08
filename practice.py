@@ -1392,6 +1392,12 @@ def main():
                     if selected_doctor_name:
                         selected_doctor = doctor_options[selected_doctor_name]
                         
+                        # Get available slots first
+                        available_slots = get_all_slots_status(
+                            selected_doctor["doctor_id"], 
+                            new_date.strftime("%Y-%m-%d")
+                        )
+                        
                         # Show doctor's details
                         st.markdown("#### Doctor Details")
                         col1, col2 = st.columns(2)
@@ -1400,18 +1406,11 @@ def main():
                             st.write("📚 Experience:", f"{selected_doctor['experience_years']} years")
                         with col2:
                             st.write("📅 Available Days:", selected_doctor['available_days'])
-                            if selected_doctor['available_slots']:
-                                try:
-                                    available_slots = json.loads(selected_doctor['available_slots']) if isinstance(selected_doctor['available_slots'], str) else selected_doctor['available_slots']
-                                    st.write("⏰ Available Slots:", ", ".join(available_slots))
-                                except Exception as e:
-                                    st.error(f"Error parsing available slots: {str(e)}")
-                        
-                        # Get available slots for selected doctor and date
-                        available_slots = get_all_slots_status(
-                            selected_doctor["doctor_id"], 
-                            new_date.strftime("%Y-%m-%d")
-                        )
+                            if available_slots:
+                                available_times = [slot["time"] for slot in available_slots]
+                                st.write("⏰ Available Today:", ", ".join(available_times))
+                            else:
+                                st.write("⏰ No slots available for selected date")
                         
                         st.write("### 📅 Appointment Schedule")
                         st.write(f"Schedule for {new_date.strftime('%A, %B %d, %Y')}")
