@@ -133,17 +133,25 @@ def get_last_update_timestamp(cursor, patient_id):
     return result['last_updated'] if result else None
 
 def save_operation_state(operation_id, state_data):
-    """Save operation state for recovery"""
-    with open(f"operation_state_{operation_id}.json", "w") as f:
-        json.dump(state_data, f, indent=2)
+    """Save the state of a database operation"""
+    try:
+        state_file = f"operation_state_{operation_id}.json"
+        with open(state_file, 'w') as f:
+            json.dump(state_data, f)
+        return True
+    except:
+        return False
 
 def load_operation_state(operation_id):
-    """Load operation state for recovery"""
+    """Load the state of a database operation"""
     try:
-        with open(f"operation_state_{operation_id}.json", "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return None
+        state_file = f"operation_state_{operation_id}.json"
+        if os.path.exists(state_file):
+            with open(state_file, 'r') as f:
+                return json.load(f)
+    except:
+        pass
+    return None
 
 def update_patient_timestamp(cursor, patient_id):
     """Update the last_updated timestamp for a patient"""
@@ -164,22 +172,31 @@ def verify_medical_terms(terms, term_type):
         return all(len(term) > 3 for term in terms)
     return True
 
-def handle_table_operation(cursor, operation_type, table, data, patient_id):
-    """Handle database operations with proper error handling"""
+def handle_table_operation(cursor, table, data, where_clause):
+    """Handle a table operation with proper error handling"""
     try:
-        if operation_type == "update":
-            affected = update_single_record(cursor, table, data, {"patient_id": patient_id})
-        elif operation_type == "insert":
-            insert_single_record(cursor, table, data)
-            affected = cursor.lastrowid
-        elif operation_type == "multiple":
-            affected = update_multiple_records(cursor, table, data, patient_id, table)
+        # Build the query
+        query = f"UPDATE {table} SET "
+        set_values = []
+        where_values = []
         
-        print(f"✅ {operation_type.capitalize()} successful for {table}")
-        return {"status": "success", "affected": affected}
+        # Add SET clause
+        for key, value in data.items():
+            set_values.append(f"{key} = %s")
+        query += ", ".join(set_values)
+        
+        # Add WHERE clause
+        query += " WHERE "
+        for key in where_clause:
+            where_values.append(f"{key} = %s")
+        query += " AND ".join(where_values)
+        
+        # Execute query
+        values = tuple(data.values()) + tuple(where_clause.values())
+        cursor.execute(query, values)
+        return True
     except Exception as e:
-        print(f"❌ Error in {operation_type} for {table}: {str(e)}")
-        raise
+        raise Exception(f"Error in table operation: {str(e)}")
 
 def load_json_file(file_path):
     """Load and parse a JSON file"""
@@ -218,29 +235,6 @@ def insert_data_from_mapped_json(json_file_path):
         cursor.execute(patient_query, patient_values)
         patient_id = cursor.lastrowid
 
-        # Insert medical history
-        medical_history = mapped_data.get("medical_history", {})
-        
-        # Insert symptoms into symptoms_history table
-        if medical_history.get("previous_symptoms"):
-            symptoms_query = "INSERT INTO symptoms_history (patient_id, symptoms) VALUES (%s, %s)"
-            cursor.execute(symptoms_query, (patient_id, medical_history["previous_symptoms"]))
-
-        # Insert medications into medications_history table
-        if medical_history.get("previous_medications"):
-            medications_query = "INSERT INTO medications_history (patient_id, medications) VALUES (%s, %s)"
-            cursor.execute(medications_query, (patient_id, medical_history["previous_medications"]))
-
-        # Insert allergies into allergies_history table
-        if medical_history.get("previous_allergies"):
-            allergies_query = "INSERT INTO allergies_history (patient_id, allergies) VALUES (%s, %s)"
-            cursor.execute(allergies_query, (patient_id, medical_history["previous_allergies"]))
-
-        # Insert surgeries into surgeries_history table
-        if medical_history.get("previous_surgeries"):
-            surgeries_query = "INSERT INTO surgeries_history (patient_id, surgeries) VALUES (%s, %s)"
-            cursor.execute(surgeries_query, (patient_id, medical_history["previous_surgeries"]))
-
         # Insert current symptoms into symptoms table
         current_symptoms = mapped_data.get("current_symptoms", [])
         if current_symptoms:
@@ -257,20 +251,6 @@ def insert_data_from_mapped_json(json_file_path):
                     symptom.get("duration")
                 )
                 cursor.execute(symptoms_query, symptom_values)
-
-        # Insert other concerns and notes into patient_notes table
-        if mapped_data.get("other_concerns") or mapped_data.get("additional_notes"):
-            notes_query = """
-                INSERT INTO patient_notes 
-                (patient_id, other_concerns, additional_notes) 
-                VALUES (%s, %s, %s)
-            """
-            notes_values = (
-                patient_id,
-                mapped_data.get("other_concerns", ""),
-                mapped_data.get("additional_notes", "")
-            )
-            cursor.execute(notes_query, notes_values)
 
         # Commit the transaction
         conn.commit()
