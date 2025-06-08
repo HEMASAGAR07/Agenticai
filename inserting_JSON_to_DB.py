@@ -204,11 +204,11 @@ def insert_data_from_mapped_json(json_file_path):
         
         # Insert into patients table
         patient_query = """
-            INSERT INTO patients (name, email, phone, dob, gender, address)
+            INSERT INTO patients (full_name, email, phone, DOB, gender, address)
             VALUES (%s, %s, %s, %s, %s, %s)
         """
         patient_values = (
-            patient_info.get("name"),
+            patient_info.get("name"),  # We keep "name" here as it comes from the mapped data
             patient_info.get("email"),
             patient_info.get("phone"),
             patient_info.get("dob"),
@@ -246,7 +246,7 @@ def insert_data_from_mapped_json(json_file_path):
         if current_symptoms:
             symptoms_query = """
                 INSERT INTO symptoms 
-                (patient_id, symptom_name, severity, duration) 
+                (patient_id, symptom_description, severity, duration) 
                 VALUES (%s, %s, %s, %s)
             """
             for symptom in current_symptoms:
@@ -262,7 +262,7 @@ def insert_data_from_mapped_json(json_file_path):
         if mapped_data.get("other_concerns") or mapped_data.get("additional_notes"):
             notes_query = """
                 INSERT INTO patient_notes 
-                (patient_id, concerns, notes) 
+                (patient_id, other_concerns, additional_notes) 
                 VALUES (%s, %s, %s)
             """
             notes_values = (
