@@ -1340,7 +1340,6 @@ def main():
             </div>
         """, unsafe_allow_html=True)
 
-        # Show specialist recommendations again
         if "specialist_recommendations" in st.session_state:
             specialists = st.session_state.specialist_recommendations["specialists"]
             rationale = st.session_state.specialist_recommendations["rationale"]
@@ -1355,8 +1354,6 @@ def main():
             
             # Get available doctors based on recommended specializations
             available_doctors = get_available_doctors()
-            
-            # Filter doctors based on recommended specializations
             recommended_doctors = [
                 doc for doc in available_doctors 
                 if any(spec.lower() in doc['specialization'].lower() for spec in specialists)
@@ -1368,6 +1365,27 @@ def main():
             
             if recommended_doctors:
                 st.markdown("### 👨‍⚕️ Available Doctors")
+                
+                # Date selection outside the form
+                today = datetime.now().date()
+                col1, col2 = st.columns([2, 1])
+                
+                with col1:
+                    new_date = st.date_input(
+                        "Select Date",
+                        min_value=today + timedelta(days=1),
+                        value=st.session_state.get('selected_date', today + timedelta(days=1)),
+                        key=f"date_select_{st.session_state.appointment_date_key}"
+                    )
+                    
+                    # Handle date change
+                    if st.session_state.get('selected_date') != new_date:
+                        st.session_state.selected_date = new_date
+                        st.session_state.form_key = st.session_state.get('form_key', 0) + 1
+                        st.session_state.appointment_date_key += 1
+                        if 'selected_time_24h' in st.session_state:
+                            del st.session_state.selected_time_24h
+                        st.rerun()
                 
                 # Create appointment booking form
                 appointment_form_key = f"appointment_form_{st.session_state.form_key}_{st.session_state.appointment_date_key}"
@@ -1388,11 +1406,6 @@ def main():
                     if selected_doctor_name:
                         selected_doctor = doctor_options[selected_doctor_name]
                         
-                        # Update last selected doctor
-                        if st.session_state.last_doctor != selected_doctor["doctor_id"]:
-                            st.session_state.last_doctor = selected_doctor["doctor_id"]
-                            handle_date_change()  # Force refresh when doctor changes
-                        
                         # Show doctor's details
                         st.markdown("#### Doctor Details")
                         col1, col2 = st.columns(2)
@@ -1407,36 +1420,15 @@ def main():
                                     st.write("⏰ Available Slots:", ", ".join(available_slots))
                                 except Exception as e:
                                     st.error(f"Error parsing available slots: {str(e)}")
-                    
-                    # Get today's date
-                    today = datetime.now().date()
-                    
-                    # Date selection with callback
-                    appointment_date = st.date_input(
-                        "Select Date",
-                        min_value=today + timedelta(days=1),
-                        value=st.session_state.get('selected_date', today + timedelta(days=1)),
-                        key=f"date_select_{st.session_state.appointment_date_key}",
-                        on_change=handle_date_change
-                    )
-
-                    # Update selected date in session state
-                    if st.session_state.selected_date != appointment_date:
-                        st.session_state.selected_date = appointment_date
-                        handle_date_change()
-                    
-                    # Show available slots for selected doctor
-                    if selected_doctor_name:
-                        selected_doctor = doctor_options[selected_doctor_name]
                         
-                        # Get only available slots
+                        # Get available slots for selected doctor and date
                         available_slots = get_all_slots_status(
                             selected_doctor["doctor_id"], 
-                            appointment_date.strftime("%Y-%m-%d")
+                            new_date.strftime("%Y-%m-%d")
                         )
                         
                         st.write("### 📅 Appointment Schedule")
-                        st.write(f"Schedule for {appointment_date.strftime('%A, %B %d, %Y')}")
+                        st.write(f"Schedule for {new_date.strftime('%A, %B %d, %Y')}")
                         
                         if available_slots:
                             st.success(f"✅ Available Time Slots ({len(available_slots)})")
@@ -1468,12 +1460,11 @@ def main():
                                 # Double check slot availability
                                 current_slots = get_all_slots_status(
                                     selected_doctor["doctor_id"], 
-                                    appointment_date.strftime("%Y-%m-%d")
+                                    new_date.strftime("%Y-%m-%d")
                                 )
                                 
                                 if not any(slot["time_24h"] == st.session_state.selected_time_24h for slot in current_slots):
                                     st.error("❌ This slot is no longer available. Please select a different time.")
-                                    # Force form refresh
                                     st.session_state.form_key = st.session_state.get('form_key', 0) + 1
                                     st.rerun()
                                     return
@@ -1481,7 +1472,7 @@ def main():
                                 # Try to reserve the slot
                                 success, message = reserve_appointment_slot(
                                     selected_doctor["doctor_id"],
-                                    appointment_date.strftime("%Y-%m-%d"),
+                                    new_date.strftime("%Y-%m-%d"),
                                     st.session_state.selected_time_24h,
                                     st.session_state.patient_data.get("email", "")
                                 )
@@ -1491,7 +1482,7 @@ def main():
                                     
                                     # Add appointment info to patient data
                                     st.session_state.patient_data["appointment"] = {
-                                        "date": appointment_date.strftime("%Y-%m-%d"),
+                                        "date": new_date.strftime("%Y-%m-%d"),
                                         "time": st.session_state.selected_time_24h,
                                         "status": "scheduled"
                                     }
@@ -1509,7 +1500,6 @@ def main():
                                     st.rerun()
                                 else:
                                     st.error(f"❌ {message}")
-                                    # Force form refresh
                                     st.session_state.form_key = st.session_state.get('form_key', 0) + 1
                                     st.rerun()
                         else:
