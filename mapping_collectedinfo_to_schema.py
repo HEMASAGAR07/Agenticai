@@ -71,8 +71,41 @@ Skip unrelated or unknown fields. Output valid JSON only.
 def date_serializer(obj):
     """Custom JSON serializer for handling dates"""
     if isinstance(obj, (date, datetime)):
-        return obj.isoformat()
+        return obj.strftime("%Y-%m-%d")
     raise TypeError(f"Type {type(obj)} not serializable")
+
+def parse_date(date_str):
+    """Parse a date string or date object into YYYY-MM-DD format"""
+    if isinstance(date_str, (date, datetime)):
+        return date_str.strftime("%Y-%m-%d")
+    elif isinstance(date_str, str):
+        # Try different date formats
+        formats = [
+            "%Y-%m-%d",
+            "%d/%m/%Y",
+            "%m/%d/%Y",
+            "%Y/%m/%d",
+            "%d-%m-%Y",
+            "%m-%d-%Y"
+        ]
+        for fmt in formats:
+            try:
+                return datetime.strptime(date_str, fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+        
+        # Check if it's a Python date object string representation
+        if "datetime.date" in date_str:
+            try:
+                # Extract year, month, day from string like "datetime.date(2003, 12, 13)"
+                parts = date_str.split("(")[1].split(")")[0].split(",")
+                year = int(parts[0])
+                month = int(parts[1])
+                day = int(parts[2])
+                return date(year, month, day).strftime("%Y-%m-%d")
+            except:
+                pass
+    return date_str
 
 def get_mapped_output(input_json):
     """Maps the collected information to the database schema"""
@@ -81,14 +114,7 @@ def get_mapped_output(input_json):
         
         # Convert any date strings to proper format
         if "DOB" in patient_data and patient_data["DOB"]:
-            try:
-                if isinstance(patient_data["DOB"], str):
-                    # Try to parse the date string
-                    dob = datetime.strptime(patient_data["DOB"], "%Y-%m-%d").date()
-                    patient_data["DOB"] = dob.isoformat()
-            except ValueError:
-                # If date parsing fails, keep the original string
-                pass
+            patient_data["DOB"] = parse_date(patient_data["DOB"])
         
         # Handle surgery dates if present
         if "previous_surgeries" in patient_data:
@@ -96,12 +122,7 @@ def get_mapped_output(input_json):
             if isinstance(surgeries, list):
                 for surgery in surgeries:
                     if isinstance(surgery, dict) and "surgery_date" in surgery:
-                        try:
-                            if isinstance(surgery["surgery_date"], str):
-                                surgery_date = datetime.strptime(surgery["surgery_date"], "%Y-%m-%d").date()
-                                surgery["surgery_date"] = surgery_date.isoformat()
-                        except ValueError:
-                            pass
+                        surgery["surgery_date"] = parse_date(surgery["surgery_date"])
 
         # Create the mapped output
         mapped_output = {
@@ -114,16 +135,37 @@ def get_mapped_output(input_json):
                 "address": patient_data.get("address", "")
             },
             "medical_history": {
-                "previous_symptoms": patient_data.get("previous_symptoms", []),
-                "previous_medications": patient_data.get("previous_medications", []),
-                "previous_allergies": patient_data.get("previous_allergies", []),
-                "previous_surgeries": patient_data.get("previous_surgeries", [])
+                "previous_symptoms": patient_data.get("previous_symptoms", ""),
+                "previous_medications": patient_data.get("previous_medications", ""),
+                "previous_allergies": patient_data.get("previous_allergies", ""),
+                "previous_surgeries": patient_data.get("previous_surgeries", "")
             },
             "current_symptoms": patient_data.get("current_symptoms", []),
             "other_concerns": patient_data.get("other_concerns", ""),
             "additional_notes": patient_data.get("additional_notes", ""),
             "status": "mapped"
         }
+        
+        # Ensure current_symptoms is properly formatted
+        if not isinstance(mapped_output["current_symptoms"], list):
+            mapped_output["current_symptoms"] = []
+        
+        # Validate current_symptoms structure
+        for i, symptom in enumerate(mapped_output["current_symptoms"]):
+            if not isinstance(symptom, dict):
+                mapped_output["current_symptoms"][i] = {
+                    "description": str(symptom),
+                    "severity": "not specified",
+                    "duration": "not specified"
+                }
+            else:
+                # Ensure all required fields exist
+                if "description" not in symptom:
+                    symptom["description"] = "not specified"
+                if "severity" not in symptom:
+                    symptom["severity"] = "not specified"
+                if "duration" not in symptom:
+                    symptom["duration"] = "not specified"
         
         return mapped_output
     except Exception as e:
