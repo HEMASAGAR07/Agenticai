@@ -393,7 +393,7 @@ Ask for name FIRST:
             st.session_state.data_confirmed = True
             st.session_state.in_health_assessment = True
             # Start health-specific questions immediately
-            health_prompt = f"""
+            health_prompt = """
 You are MediBot, a medical intake assistant. The patient has confirmed their details.
 
 IMPORTANT RULES:
@@ -425,13 +425,19 @@ CONVERSATION FLOW:
    - Don't ignore simple answers
 
 4. When Complete:
-   - Return a JSON with "status": "complete" and all collected information in this format:
+   Return a JSON object with this structure:
    {
      "status": "complete",
      "patient_data": {
-       "symptoms": [{"description": "...", "severity": "...", "duration": "..."}],
-       "other_concerns": "...",
-       "additional_notes": "..."
+       "current_symptoms": [
+         {
+           "description": "headache",
+           "severity": "mild",
+           "duration": "2 days"
+         }
+       ],
+       "other_concerns": "none",
+       "additional_notes": "patient reports good overall health"
      }
    }
 
