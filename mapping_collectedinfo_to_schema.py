@@ -124,61 +124,86 @@ def get_mapped_output(input_json):
                     if isinstance(surgery, dict) and "surgery_date" in surgery:
                         surgery["surgery_date"] = parse_date(surgery["surgery_date"])
 
-        # Create the mapped output
-        mapped_output = {
-            "patient_info": {
-                "name": patient_data.get("full_name", ""),
-                "email": patient_data.get("email", ""),
-                "phone": patient_data.get("phone", ""),
-                "dob": patient_data.get("DOB", ""),
-                "gender": patient_data.get("gender", ""),
-                "address": patient_data.get("address", "")
-            },
-            "medical_history": {
-                "previous_symptoms": patient_data.get("previous_symptoms", ""),
-                "previous_medications": patient_data.get("previous_medications", ""),
-                "previous_allergies": patient_data.get("previous_allergies", ""),
-                "previous_surgeries": patient_data.get("previous_surgeries", "")
-            },
-            "current_symptoms": patient_data.get("current_symptoms", []),
-            "other_concerns": patient_data.get("other_concerns", ""),
-            "additional_notes": patient_data.get("additional_notes", ""),
-            "status": "mapped"
+        # Create the mapped output as a list of table operations
+        mapped_output = []
+        
+        # Add patient data
+        patient_columns = {
+            "full_name": patient_data.get("full_name", ""),
+            "email": patient_data.get("email", ""),
+            "phone": patient_data.get("phone", ""),
+            "DOB": patient_data.get("DOB", ""),
+            "gender": patient_data.get("gender", ""),
+            "address": patient_data.get("address", "")
         }
-
+        # Remove empty values
+        patient_columns = {k: v for k, v in patient_columns.items() if v}
+        if patient_columns:
+            mapped_output.append({
+                "table": "patients",
+                "columns": patient_columns
+            })
+        
+        # Add symptoms data
+        symptoms_records = []
+        
+        # Add current symptoms
+        current_symptoms = patient_data.get("current_symptoms", [])
+        if isinstance(current_symptoms, list):
+            for symptom in current_symptoms:
+                if isinstance(symptom, dict):
+                    symptoms_records.append({
+                        "symptom_description": symptom.get("description", "not specified"),
+                        "severity": symptom.get("severity", "not specified"),
+                        "duration": symptom.get("duration", "not specified")
+                    })
+                else:
+                    symptoms_records.append({
+                        "symptom_description": str(symptom),
+                        "severity": "not specified",
+                        "duration": "not specified"
+                    })
+        
         # Add specialist recommendations if available
         if "specialist_recommendations" in input_json:
-            mapped_output["specialist_recommendations"] = input_json["specialist_recommendations"]
-
+            recommendations = input_json["specialist_recommendations"]
+            specialists = recommendations.get("specialists", [])
+            rationale = recommendations.get("rationale", "")
+            if specialists or rationale:
+                notes = []
+                if specialists:
+                    notes.append("Recommended Specialists:")
+                    for specialist in specialists:
+                        notes.append(f"- {specialist}")
+                if rationale:
+                    notes.append(f"\nRationale: {rationale}")
+                symptoms_records.append({
+                    "symptom_description": "\n".join(notes),
+                    "severity": "info",
+                    "duration": "N/A"
+                })
+        
         # Add appointment details if available
         if "appointment" in patient_data:
-            mapped_output["appointment"] = {
-                "specialist": patient_data["appointment"].get("specialist", ""),
-                "date": parse_date(patient_data["appointment"].get("date", "")),
-                "time": patient_data["appointment"].get("time", ""),
-                "status": "scheduled"
-            }
+            appt = patient_data["appointment"]
+            appt_notes = [
+                "Appointment Details:",
+                f"- Specialist: {appt.get('specialist', '')}",
+                f"- Date: {appt.get('date', '')}",
+                f"- Time: {appt.get('time', '')}",
+                f"- Status: {appt.get('status', 'scheduled')}"
+            ]
+            symptoms_records.append({
+                "symptom_description": "\n".join(appt_notes),
+                "severity": "info",
+                "duration": "N/A"
+            })
         
-        # Ensure current_symptoms is properly formatted
-        if not isinstance(mapped_output["current_symptoms"], list):
-            mapped_output["current_symptoms"] = []
-        
-        # Validate current_symptoms structure
-        for i, symptom in enumerate(mapped_output["current_symptoms"]):
-            if not isinstance(symptom, dict):
-                mapped_output["current_symptoms"][i] = {
-                    "description": str(symptom),
-                    "severity": "not specified",
-                    "duration": "not specified"
-                }
-            else:
-                # Ensure all required fields exist
-                if "description" not in symptom:
-                    symptom["description"] = "not specified"
-                if "severity" not in symptom:
-                    symptom["severity"] = "not specified"
-                if "duration" not in symptom:
-                    symptom["duration"] = "not specified"
+        if symptoms_records:
+            mapped_output.append({
+                "table": "symptoms",
+                "records": symptoms_records
+            })
         
         return mapped_output
     except Exception as e:
