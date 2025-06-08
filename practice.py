@@ -328,19 +328,85 @@ def convert_time_format(time_str):
         st.error(f"Error converting time format: {str(e)}")
         return None
 
+def update_doctor_booked_slots(doctor_id, appointment_date, appointment_time):
+    """Update the doctor's booked slots in the database"""
+    try:
+        conn = pymysql.connect(**db_config)
+        cursor = conn.cursor()
+        
+        # First get current booked slots
+        cursor.execute("""
+            SELECT GROUP_CONCAT(
+                CONCAT(appointment_date, ' ', appointment_time)
+            ) as booked_slots
+            FROM appointments 
+            WHERE doctor_id = %s
+        """, (doctor_id,))
+        result = cursor.fetchone()
+        
+        # Create new booked slot
+        new_slot = f"{appointment_date} {appointment_time}"
+        
+        # Combine existing and new slots
+        current_slots = result[0].split(',') if result[0] else [] if result else []
+        if new_slot not in current_slots:
+            current_slots.append(new_slot)
+        
+        # Update appointments table
+        cursor.execute("""
+            INSERT INTO appointments 
+            (doctor_id, appointment_date, appointment_time, patient_id, status) 
+            VALUES (%s, %s, %s, %s, %s)
+        """, (doctor_id, appointment_date, appointment_time, None, 1))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"Error updating booked slots: {str(e)}")
+        if 'conn' in locals():
+            conn.rollback()
+        return False
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
+def get_doctor_booked_slots(doctor_id):
+    """Get the doctor's currently booked slots"""
+    try:
+        conn = pymysql.connect(**db_config)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT 
+                CONCAT(appointment_date, ' ', appointment_time) as slot
+            FROM appointments 
+            WHERE doctor_id = %s
+        """, (doctor_id,))
+        
+        results = cursor.fetchall()
+        return [row[0] for row in results] if results else []
+    except Exception as e:
+        st.error(f"Error getting booked slots: {str(e)}")
+        return []
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
 def is_slot_available(doctor, date, time):
     """Check if a time slot is available for the doctor"""
     try:
-        # Convert booked_slots string to list of datetime strings
-        booked_slots = []
-        if doctor.get('booked_slots'):
-            booked_slots = doctor['booked_slots'].split(',')
-        
         # Convert time to 24-hour format for comparison
         time_24h = convert_time_format(time)
         if not time_24h:
             return False
             
+        # Get real-time booked slots from database
+        booked_slots = get_doctor_booked_slots(doctor['doctor_id'])
+        
         # Format the requested slot in the same format as booked slots
         requested_slot = f"{date} {time_24h}"
         
@@ -1171,25 +1237,33 @@ def main():
                         # Convert selected time to 24-hour format for final check
                         time_24h = convert_time_format(appointment_time)
                         if time_24h and is_slot_available(selected_doctor, appointment_date.strftime("%Y-%m-%d"), time_24h):
-                            # Add appointment info to patient data
-                            st.session_state.patient_data["appointment"] = {
-                                "date": appointment_date.strftime("%Y-%m-%d"),
-                                "time": time_24h,  # Store in 24-hour format
-                                "status": "scheduled"
-                            }
-                            
-                            # Add selected doctor info
-                            st.session_state.patient_data["selected_doctor"] = {
-                                "doctor_id": selected_doctor["doctor_id"],
-                                "name": selected_doctor["full_name"],
-                                "specialization": selected_doctor["specialization"],
-                                "hospital": selected_doctor["hospital_affiliation"]
-                            }
-                            
-                            st.success("✅ Appointment scheduled successfully!")
-                            # Move to next step
-                            st.session_state.step = "db_insert"
-                            st.rerun()
+                            # First update the booked slots in the database
+                            if update_doctor_booked_slots(
+                                selected_doctor["doctor_id"],
+                                appointment_date.strftime("%Y-%m-%d"),
+                                time_24h
+                            ):
+                                # Add appointment info to patient data
+                                st.session_state.patient_data["appointment"] = {
+                                    "date": appointment_date.strftime("%Y-%m-%d"),
+                                    "time": time_24h,  # Store in 24-hour format
+                                    "status": "scheduled"
+                                }
+                                
+                                # Add selected doctor info
+                                st.session_state.patient_data["selected_doctor"] = {
+                                    "doctor_id": selected_doctor["doctor_id"],
+                                    "name": selected_doctor["full_name"],
+                                    "specialization": selected_doctor["specialization"],
+                                    "hospital": selected_doctor["hospital_affiliation"]
+                                }
+                                
+                                st.success("✅ Appointment scheduled successfully!")
+                                # Move to next step
+                                st.session_state.step = "db_insert"
+                                st.rerun()
+                            else:
+                                st.error("Failed to update appointment slot. Please try again.")
                         else:
                             st.error("This slot is no longer available. Please select another time.")
             else:
