@@ -1278,29 +1278,29 @@ def main():
         if "patient_data" in st.session_state:
             st.session_state.patient_data = migrate_existing_data({"patient_data": st.session_state.patient_data})["patient_data"]
 
-        # Handle different steps
-        if st.session_state.step == "intake":
-            st.markdown("""
-                <div class='step-header'>
-                    <h2>Step 1: Symptom Analysis</h2>
-                    <p>Let's analyze your symptoms and provide recommendations</p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            patient_data, _, done = dynamic_medical_intake()
-            if done:
-                st.session_state.step = "specialist"
-                st.rerun()
+        try:
+            # Handle different steps
+            if st.session_state.step == "intake":
+                st.markdown("""
+                    <div class='step-header'>
+                        <h2>Step 1: Symptom Analysis</h2>
+                        <p>Let's analyze your symptoms and provide recommendations</p>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                patient_data, _, done = dynamic_medical_intake()
+                if done:
+                    st.session_state.step = "specialist"
+                    st.rerun()
 
-        elif st.session_state.step == "specialist":
-            st.markdown("""
-                <div class='step-header'>
-                    <h2>Step 2: Specialist Recommendation</h2>
-                    <p>Based on your symptoms, we'll recommend appropriate specialists</p>
-                </div>
-            """, unsafe_allow_html=True)
+            elif st.session_state.step == "specialist":
+                st.markdown("""
+                    <div class='step-header'>
+                        <h2>Step 2: Specialist Recommendation</h2>
+                        <p>Based on your symptoms, we'll recommend appropriate specialists</p>
+                    </div>
+                """, unsafe_allow_html=True)
 
-            try:
                 specialists, rationale = recommend_specialist(st.session_state.patient_data)
                 
                 if specialists:
@@ -1320,12 +1320,8 @@ def main():
                     if st.button("Proceed to Appointment Booking"):
                         st.session_state.step = "appointment"
                         st.rerun()
-            except Exception as e:
-                st.error("An error occurred while generating specialist recommendations. Please try again.")
-                return
 
-        elif st.session_state.step == "appointment":
-            try:
+            elif st.session_state.step == "appointment":
                 st.markdown("""
                     <div class='step-header'>
                         <h2>Step 3: Schedule Appointment</h2>
@@ -1519,8 +1515,7 @@ def main():
                         st.error("No doctors available at the moment. Please try again later.")
                     return
 
-        elif st.session_state.step == "db_insert":
-            try:
+            elif st.session_state.step == "db_insert":
                 st.markdown("""
                     <div class='step-header'>
                         <h2>Step 4: Saving Analysis</h2>
@@ -1556,7 +1551,6 @@ def main():
                                 if result.get("status") == "success":
                                     st.success("✅ Analysis saved successfully!")
                                     
-                                    # Show success information
                                     if "symptoms_analysis" in mapped_result:
                                         st.write("### Analysis Results")
                                         analysis = mapped_result["symptoms_analysis"]
@@ -1577,7 +1571,6 @@ def main():
                                         if "rationale" in analysis:
                                             st.write(f"*Analysis Rationale:* {analysis['rationale']}")
                                     
-                                    # Show appointment details
                                     if "appointment" in st.session_state.patient_data:
                                         st.write("### Appointment Details")
                                         appt = st.session_state.patient_data["appointment"]
@@ -1594,7 +1587,7 @@ def main():
                                         st.session_state.step = "intake"
                                         st.rerun()
                             except Exception as e:
-                                st.error(f"Database error: Please try again or contact support.")
+                                st.error("Database error: Please try again or contact support.")
                     except Exception as e:
                         st.error("Error preparing data: Please try again or contact support.")
                 else:
@@ -1602,9 +1595,10 @@ def main():
                     if st.button("Return to Symptom Analysis"):
                         st.session_state.step = "intake"
                         st.rerun()
-            except Exception as e:
-                st.error("An error occurred while saving the analysis. Please try again.")
-                return
+
+        except Exception as e:
+            st.error("An error occurred during processing. Please try again.")
+            return
 
     except Exception as e:
         st.error("An unexpected error occurred. Please try again or contact support if the issue persists.")
