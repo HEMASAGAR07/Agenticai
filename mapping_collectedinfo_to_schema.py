@@ -196,12 +196,28 @@ def get_mapped_output(input_json):
                     "duration": "N/A"
                 })
 
-        # Add appointment details
-        if "appointment" in patient_data:
+        # Add appointment and doctor details
+        if "selected_doctor" in patient_data and "appointment" in patient_data:
+            doctor = patient_data["selected_doctor"]
             appt = patient_data["appointment"]
+            
+            # Add appointment record
+            mapped_output.append({
+                "table": "appointments",
+                "columns": {
+                    "doctor_id": doctor.get("doctor_id"),
+                    "appointment_date": appt.get("date"),
+                    "appointment_time": appt.get("time"),
+                    "status": 1  # 1 for scheduled
+                }
+            })
+            
+            # Add appointment notes to symptoms
             appt_notes = [
-                "Appointment:",
-                f"Specialist: {appt.get('specialist', '')}",
+                "Appointment Details:",
+                f"Doctor: Dr. {doctor.get('name', '')}",
+                f"Specialization: {doctor.get('specialization', '')}",
+                f"Hospital: {doctor.get('hospital', '')}",
                 f"Date: {appt.get('date', '')}",
                 f"Time: {appt.get('time', '')}"
             ]
@@ -210,33 +226,6 @@ def get_mapped_output(input_json):
                 "severity": "info",
                 "duration": "N/A"
             })
-
-        # Add selected doctor information
-        if "selected_doctor" in patient_data:
-            doctor = patient_data["selected_doctor"]
-            doctor_notes = [
-                "Selected Doctor:",
-                f"Name: Dr. {doctor.get('name', '')}",
-                f"Specialization: {doctor.get('specialization', '')}",
-                f"Hospital: {doctor.get('hospital', '')}"
-            ]
-            symptoms_records.append({
-                "symptom_description": summarize_medical_text("\n".join(doctor_notes)),
-                "severity": "info",
-                "duration": "N/A"
-            })
-
-            # Add to appointments table if it exists
-            if "appointment" in patient_data:
-                mapped_output.append({
-                    "table": "appointments",
-                    "columns": {
-                        "doctor_id": doctor.get("doctor_id"),
-                        "appointment_date": patient_data["appointment"].get("date"),
-                        "appointment_time": patient_data["appointment"].get("time"),
-                        "status": 1  # 1 for scheduled
-                    }
-                })
 
         # Add symptoms records if any exist
         if symptoms_records:
