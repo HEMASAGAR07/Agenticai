@@ -24,7 +24,7 @@ TABLE: medical_history (history_id:int, patient_id:int, condition:varchar, diagn
 TABLE: medications (id:int, patient_id:int, medication_name:varchar, dosage:varchar, start_date:date, end_date:date)
 TABLE: patients (patient_id:int, full_name:varchar, age:int, gender:varchar, email:varchar, phone:varchar, address:text, DOB:date)
 TABLE: surgeries (surgery_id:int, patient_id:int, procedure_name:varchar, surgery_date:date, hospital_name:varchar)
-TABLE: symptoms (symptom_id:int, patient_id:int, symptom_description:varchar, severity:varchar, duration:varchar, recorded_at:datetime)
+TABLE: symptoms (symptom_id:int, patient_id:int, symptom_description:text, severity:varchar, duration:varchar, recorded_at:datetime)
 """
 
 # 3. Build Gemini-compatible prompt
