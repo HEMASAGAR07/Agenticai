@@ -1087,13 +1087,13 @@ def reserve_appointment_slot(doctor_id, appointment_date, appointment_time, emai
         if 'conn' in locals():
             conn.close()
 
-def get_available_slots(doctor_id, date):
-    """Get available slots for a doctor on a specific date"""
+def get_all_slots_status(doctor_id, date):
+    """Get all slots with their availability status"""
     try:
         conn = pymysql.connect(**db_config)
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         
-        # Get doctor's schedule and booked appointments in a single query
+        # Get doctor's schedule and booked appointments
         cursor.execute("""
             SELECT 
                 d.available_slots,
@@ -1102,75 +1102,48 @@ def get_available_slots(doctor_id, date):
             FROM doctors d
             LEFT JOIN appointments a ON d.doctor_id = a.doctor_id 
                 AND a.appointment_date = %s
-                AND a.status = 1  # Only consider confirmed/reserved appointments
+                AND a.status = 1
             WHERE d.doctor_id = %s
             GROUP BY d.doctor_id
         """, (date, doctor_id))
         
         result = cursor.fetchone()
         if not result or not result['available_slots']:
-            return []
+            return [], []
         
         # Check if the selected date's day is in available days
-        selected_day = datetime.strptime(date, "%Y-%m-%d").strftime("%A")[:3]  # Get short day name (Mon, Tue, etc.)
+        selected_day = datetime.strptime(date, "%Y-%m-%d").strftime("%A")[:3]
         available_days = [day.strip()[:3] for day in result['available_days'].split(',')]
         
         if selected_day not in available_days:
-            return []  # Return empty list if day is not available
+            return [], []
         
-        # Get all slots from doctor's schedule
+        # Get all slots and booked slots
         all_slots = json.loads(result['available_slots'])
+        booked_slots = result['booked_times'].split(',') if result['booked_times'] else []
         
-        # Get list of booked slots
-        booked_slots = []
-        if result['booked_times']:
-            booked_slots = result['booked_times'].split(',')
-        
-        # Filter out booked slots and convert to display format
+        # Prepare available and booked slots lists
         available_slots = []
+        unavailable_slots = []
+        
         for slot in all_slots:
-            # Convert to 24-hour format for comparison
             time_24h = convert_time_format(slot)
-            if time_24h and time_24h not in booked_slots:
-                # Convert to 12-hour format for display
-                time_obj = datetime.strptime(time_24h, "%H:%M")
-                display_time = time_obj.strftime("%I:%M %p").lstrip("0")
+            if not time_24h:
+                continue
+                
+            # Convert to 12-hour format for display
+            time_obj = datetime.strptime(time_24h, "%H:%M")
+            display_time = time_obj.strftime("%I:%M %p").lstrip("0")
+            
+            if time_24h in booked_slots:
+                unavailable_slots.append(display_time)
+            else:
                 available_slots.append(display_time)
         
-        return sorted(available_slots)
+        return sorted(available_slots), sorted(unavailable_slots)
     except Exception as e:
-        st.error(f"Error getting available slots: {str(e)}")
-        return []
-    finally:
-        if 'cursor' in locals():
-            cursor.close()
-        if 'conn' in locals():
-            conn.close()
-
-def is_slot_available(doctor_id, date, time):
-    """Check if a time slot is available"""
-    try:
-        conn = pymysql.connect(**db_config)
-        cursor = conn.cursor()
-        
-        # Convert time to 24-hour format
-        time_24h = convert_time_format(time)
-        if not time_24h:
-            return False
-        
-        # Check if slot is already booked
-        cursor.execute("""
-            SELECT COUNT(*) 
-            FROM appointments 
-            WHERE doctor_id = %s 
-            AND appointment_date = %s 
-            AND appointment_time = %s
-        """, (doctor_id, date, time_24h))
-        
-        return cursor.fetchone()[0] == 0
-    except Exception as e:
-        st.error(f"Error checking slot availability: {str(e)}")
-        return False
+        st.error(f"Error getting slots status: {str(e)}")
+        return [], []
     finally:
         if 'cursor' in locals():
             cursor.close()
@@ -1327,28 +1300,44 @@ def main():
                         value=today + timedelta(days=1)
                     )
                     
-                    # Show only available slots for selected doctor
+                    # Show available and booked slots for selected doctor
                     if selected_doctor_name:
                         selected_doctor = doctor_options[selected_doctor_name]
                         
-                        # Get available slots for the selected date
-                        available_slots = get_available_slots(
+                        # Get available and unavailable slots
+                        available_slots, unavailable_slots = get_all_slots_status(
                             selected_doctor["doctor_id"], 
                             appointment_date.strftime("%Y-%m-%d")
                         )
                         
-                        if available_slots:
-                            st.write("### Available Time Slots")
-                            st.info(f"Found {len(available_slots)} available slots for {appointment_date.strftime('%A, %B %d, %Y')}")
-                            
-                            appointment_time = st.selectbox(
-                                "Select Time",
-                                options=available_slots,
-                                help="These slots are currently available for booking"
-                            )
-                        else:
-                            st.error("No available slots for the selected date. Please choose another date.")
-                            st.info("💡 Try selecting a different date or check another doctor's availability.")
+                        st.write("### 📅 Appointment Schedule")
+                        st.write(f"Schedule for {appointment_date.strftime('%A, %B %d, %Y')}")
+                        
+                        col1, col2 = st.columns([2, 1])
+                        
+                        with col1:
+                            if available_slots:
+                                st.success(f"✅ Available Slots: {len(available_slots)}")
+                                appointment_time = st.selectbox(
+                                    "Select Available Time",
+                                    options=available_slots,
+                                    help="Choose from available time slots"
+                                )
+                            else:
+                                st.error("No available slots for this date")
+                                appointment_time = None
+                        
+                        with col2:
+                            if unavailable_slots:
+                                st.warning("⚠️ Already Booked:")
+                                for slot in unavailable_slots:
+                                    st.write(f"❌ {slot}")
+                                st.info("Please avoid selecting these times")
+                            else:
+                                st.success("No booked slots for this date")
+                        
+                        if not available_slots:
+                            st.info("💡 Try selecting a different date or check another doctor's availability")
                             appointment_time = None
                     
                     # Include the "Proceed to Save Data" in the form submit
