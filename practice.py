@@ -1116,12 +1116,6 @@ def get_all_slots_status(doctor_id, date):
             st.error(f"Error parsing available slots: {str(e)}")
             return []
         
-        # Debug information
-        st.write("Debug Info (will be removed):")
-        st.write(f"Total slots in schedule: {len(all_slots)}")
-        st.write(f"Booked slots: {len(booked_slots)}")
-        st.write("Booked times:", sorted(list(booked_slots)))
-        
         # Filter available slots
         available_slots = []
         for slot in all_slots:
@@ -1129,12 +1123,10 @@ def get_all_slots_status(doctor_id, date):
                 # Convert to 24-hour format for comparison
                 time_24h = convert_time_format(slot)
                 if not time_24h:
-                    st.write(f"Skipping invalid time format: {slot}")
                     continue
                     
                 # Skip if slot is booked
                 if time_24h in booked_slots:
-                    st.write(f"Skipping booked slot: {time_24h}")
                     continue
                     
                 # Convert to 12-hour format for display
@@ -1147,12 +1139,7 @@ def get_all_slots_status(doctor_id, date):
                     "status": "available"
                 })
             except Exception as e:
-                st.write(f"Error processing slot {slot}: {str(e)}")
                 continue
-        
-        # Debug information
-        st.write(f"Available slots after filtering: {len(available_slots)}")
-        st.write("Available times:", [slot["time"] for slot in available_slots])
         
         # Sort by time
         available_slots.sort(key=lambda x: datetime.strptime(x["time"], "%I:%M %p"))
@@ -1160,7 +1147,6 @@ def get_all_slots_status(doctor_id, date):
         
     except Exception as e:
         st.error(f"Error getting slots status: {str(e)}")
-        st.write("Full error:", str(e))
         return []
     finally:
         if 'cursor' in locals():
