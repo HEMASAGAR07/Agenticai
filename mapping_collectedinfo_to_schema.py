@@ -145,6 +145,19 @@ def get_mapped_output(input_json):
             "additional_notes": patient_data.get("additional_notes", ""),
             "status": "mapped"
         }
+
+        # Add specialist recommendations if available
+        if "specialist_recommendations" in input_json:
+            mapped_output["specialist_recommendations"] = input_json["specialist_recommendations"]
+
+        # Add appointment details if available
+        if "appointment" in patient_data:
+            mapped_output["appointment"] = {
+                "specialist": patient_data["appointment"].get("specialist", ""),
+                "date": parse_date(patient_data["appointment"].get("date", "")),
+                "time": patient_data["appointment"].get("time", ""),
+                "status": "scheduled"
+            }
         
         # Ensure current_symptoms is properly formatted
         if not isinstance(mapped_output["current_symptoms"], list):
@@ -206,4 +219,13 @@ def main():
         print(f" ❌ Error saving mapped output: {str(e)}")
 
 if __name__ == "__main__":
-    main()
+    # Test the mapping
+    test_input = {
+        "patient_data": {
+            "full_name": "Test Patient",
+            "DOB": "datetime.date(2003, 12, 13)",
+            "email": "test@example.com"
+        }
+    }
+    result = get_mapped_output(test_input)
+    print(json.dumps(result, indent=2, default=date_serializer))
