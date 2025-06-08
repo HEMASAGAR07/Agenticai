@@ -7,7 +7,8 @@ from datetime import date, datetime
 
 # Load Gemini API key
 load_dotenv()
-configure(api_key=os.getenv("GEMINI_API_KEY"))
+configure(api_key=os.getenv("GOOGLE_API_KEY"))
+model = GenerativeModel("gemini-1.5-flash")
 
 # 1. Load the raw input JSON file
 def load_input_json(file_path):
@@ -107,27 +108,33 @@ def parse_date(date_str):
                 pass
     return date_str
 
+def summarize_medical_text(text, max_length=200):
+    """Use LLM to create a concise medical summary"""
+    try:
+        if not text or len(str(text)) <= max_length:
+            return text
+            
+        prompt = f"""
+Summarize the following medical information concisely (maximum {max_length} characters) while preserving all important medical details:
+
+{text}
+
+Keep it professional and medically accurate. Include key symptoms, severity, and duration if mentioned.
+"""
+        response = model.generate_content(prompt)
+        summary = response.text.strip()
+        return summary[:max_length]
+    except Exception as e:
+        print(f"Warning: Error summarizing text: {str(e)}")
+        return str(text)[:max_length]
+
 def get_mapped_output(input_json):
     """Maps the collected information to the database schema"""
     try:
         patient_data = input_json.get("patient_data", {})
-        
-        # Convert any date strings to proper format
-        if "DOB" in patient_data and patient_data["DOB"]:
-            patient_data["DOB"] = parse_date(patient_data["DOB"])
-        
-        # Handle surgery dates if present
-        if "previous_surgeries" in patient_data:
-            surgeries = patient_data["previous_surgeries"]
-            if isinstance(surgeries, list):
-                for surgery in surgeries:
-                    if isinstance(surgery, dict) and "surgery_date" in surgery:
-                        surgery["surgery_date"] = parse_date(surgery["surgery_date"])
-
-        # Create the mapped output as a list of table operations
         mapped_output = []
         
-        # Add patient data
+        # Handle patient data
         patient_columns = {
             "full_name": patient_data.get("full_name", ""),
             "email": patient_data.get("email", ""),
@@ -143,28 +150,34 @@ def get_mapped_output(input_json):
                 "table": "patients",
                 "columns": patient_columns
             })
-        
-        # Add symptoms data
+
+        # Handle symptoms
         symptoms_records = []
         
-        # Add current symptoms
+        # Process current symptoms
         current_symptoms = patient_data.get("current_symptoms", [])
         if isinstance(current_symptoms, list):
             for symptom in current_symptoms:
                 if isinstance(symptom, dict):
                     symptoms_records.append({
-                        "symptom_description": symptom.get("description", "not specified"),
+                        "symptom_description": summarize_medical_text(symptom.get("description", "not specified")),
                         "severity": symptom.get("severity", "not specified"),
                         "duration": symptom.get("duration", "not specified")
                     })
                 else:
                     symptoms_records.append({
-                        "symptom_description": str(symptom),
+                        "symptom_description": summarize_medical_text(str(symptom)),
                         "severity": "not specified",
                         "duration": "not specified"
                     })
-        
-        # Add specialist recommendations if available
+        elif current_symptoms:  # Handle string input
+            symptoms_records.append({
+                "symptom_description": summarize_medical_text(str(current_symptoms)),
+                "severity": "not specified",
+                "duration": "not specified"
+            })
+
+        # Add specialist recommendations
         if "specialist_recommendations" in input_json:
             recommendations = input_json["specialist_recommendations"]
             specialists = recommendations.get("specialists", [])
@@ -173,38 +186,38 @@ def get_mapped_output(input_json):
                 notes = []
                 if specialists:
                     notes.append("Recommended Specialists:")
-                    for specialist in specialists:
-                        notes.append(f"- {specialist}")
+                    notes.extend([f"- {s}" for s in specialists[:3]])  # Limit to top 3 specialists
                 if rationale:
-                    notes.append(f"\nRationale: {rationale}")
+                    notes.append("Rationale:")
+                    notes.append(summarize_medical_text(rationale, 150))  # Shorter summary for rationale
                 symptoms_records.append({
-                    "symptom_description": "\n".join(notes),
+                    "symptom_description": summarize_medical_text("\n".join(notes)),
                     "severity": "info",
                     "duration": "N/A"
                 })
-        
-        # Add appointment details if available
+
+        # Add appointment details
         if "appointment" in patient_data:
             appt = patient_data["appointment"]
             appt_notes = [
-                "Appointment Details:",
-                f"- Specialist: {appt.get('specialist', '')}",
-                f"- Date: {appt.get('date', '')}",
-                f"- Time: {appt.get('time', '')}",
-                f"- Status: {appt.get('status', 'scheduled')}"
+                "Appointment:",
+                f"Specialist: {appt.get('specialist', '')}",
+                f"Date: {appt.get('date', '')}",
+                f"Time: {appt.get('time', '')}"
             ]
             symptoms_records.append({
-                "symptom_description": "\n".join(appt_notes),
+                "symptom_description": summarize_medical_text("\n".join(appt_notes)),
                 "severity": "info",
                 "duration": "N/A"
             })
-        
+
+        # Add symptoms records if any exist
         if symptoms_records:
             mapped_output.append({
                 "table": "symptoms",
                 "records": symptoms_records
             })
-        
+
         return mapped_output
     except Exception as e:
         raise Exception(f"Error mapping data: {str(e)}")
