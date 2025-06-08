@@ -278,6 +278,36 @@ def is_valid_phone(phone):
     
     return True, formatted
 
+def get_available_doctors():
+    """Retrieve list of available doctors from database"""
+    try:
+        conn = pymysql.connect(**db_config)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        cursor.execute("""
+            SELECT 
+                doctor_id,
+                full_name,
+                specialization,
+                experience_years,
+                hospital_affiliation,
+                available_days,
+                available_slots
+            FROM doctors
+            ORDER BY full_name
+        """)
+        
+        doctors = cursor.fetchall()
+        return doctors
+    except Exception as e:
+        st.error(f"Error fetching doctors: {str(e)}")
+        return []
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
 def dynamic_medical_intake():
     # Using session state to store conversation & patient_data across reruns
     if "intake_history" not in st.session_state:
@@ -298,11 +328,60 @@ def dynamic_medical_intake():
         st.session_state.in_health_assessment = False
     if "symptoms_collected" not in st.session_state:
         st.session_state.symptoms_collected = False
+    if "is_new_patient" not in st.session_state:
+        st.session_state.is_new_patient = None
+    if "selected_doctor" not in st.session_state:
+        st.session_state.selected_doctor = None
 
     # If symptoms have been collected, show the proceed button
     if st.session_state.symptoms_collected:
         st.success("✅ Medical intake completed successfully!")
+        
+        # Get available doctors
+        available_doctors = get_available_doctors()
+        
+        if available_doctors:
+            st.markdown("### 👨‍⚕️ Select Your Doctor")
+            
+            # Create a formatted display name for each doctor
+            doctor_options = {
+                f"Dr. {doc['full_name']} - {doc['specialization']} ({doc['experience_years']} years) - {doc['hospital_affiliation']}": doc 
+                for doc in available_doctors
+            }
+            
+            selected_doctor_name = st.selectbox(
+                "Choose your preferred doctor:",
+                options=list(doctor_options.keys()),
+                help="Select a doctor from the list below"
+            )
+            
+            if selected_doctor_name:
+                st.session_state.selected_doctor = doctor_options[selected_doctor_name]
+                
+                # Show doctor's details
+                st.markdown("#### Doctor Details")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("🏥 Hospital:", st.session_state.selected_doctor['hospital_affiliation'])
+                    st.write("📚 Experience:", f"{st.session_state.selected_doctor['experience_years']} years")
+                with col2:
+                    st.write("📅 Available Days:", st.session_state.selected_doctor['available_days'])
+                    if st.session_state.selected_doctor['available_slots']:
+                        slots = json.loads(st.session_state.selected_doctor['available_slots'])
+                        st.write("⏰ Available Slots:", ", ".join(slots))
+        else:
+            st.warning("No doctors available at the moment. Please try again later.")
+            return {}, "", False
+            
         if st.button("Proceed to Save Data"):
+            # Add selected doctor to patient data
+            if st.session_state.selected_doctor:
+                st.session_state.patient_data['selected_doctor'] = {
+                    'doctor_id': st.session_state.selected_doctor['doctor_id'],
+                    'name': st.session_state.selected_doctor['full_name'],
+                    'specialization': st.session_state.selected_doctor['specialization'],
+                    'hospital': st.session_state.selected_doctor['hospital_affiliation']
+                }
             st.session_state.step = "db_insert"
             st.rerun()
         return st.session_state.patient_data, "", True
