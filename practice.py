@@ -1045,6 +1045,125 @@ def date_serializer(obj):
     raise TypeError(f"Type {type(obj)} not serializable")
 
 
+def reserve_appointment_slot(doctor_id, appointment_date, appointment_time, email):
+    """Reserve an appointment slot in the database"""
+    try:
+        conn = pymysql.connect(**db_config)
+        cursor = conn.cursor()
+        
+        # Check if slot is already booked
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM appointments 
+            WHERE doctor_id = %s 
+            AND appointment_date = %s 
+            AND appointment_time = %s
+        """, (doctor_id, appointment_date, appointment_time))
+        
+        if cursor.fetchone()[0] > 0:
+            return False, "This slot is already booked."
+        
+        # Get patient_id from email
+        cursor.execute("SELECT patient_id FROM patients WHERE email = %s", (email,))
+        result = cursor.fetchone()
+        patient_id = result[0] if result else None
+        
+        # Insert the appointment with status = 1 (reserved)
+        cursor.execute("""
+            INSERT INTO appointments 
+            (doctor_id, patient_id, appointment_date, appointment_time, status) 
+            VALUES (%s, %s, %s, %s, 1)
+        """, (doctor_id, patient_id, appointment_date, appointment_time, ))
+        
+        conn.commit()
+        return True, "Slot reserved successfully"
+    except Exception as e:
+        if 'conn' in locals():
+            conn.rollback()
+        return False, f"Error reserving slot: {str(e)}"
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
+def get_available_slots(doctor_id, date):
+    """Get available slots for a doctor on a specific date"""
+    try:
+        conn = pymysql.connect(**db_config)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # Get doctor's available slots and booked appointments
+        cursor.execute("""
+            SELECT 
+                d.available_slots,
+                GROUP_CONCAT(a.appointment_time) as booked_times
+            FROM doctors d
+            LEFT JOIN appointments a ON d.doctor_id = a.doctor_id 
+                AND a.appointment_date = %s
+            WHERE d.doctor_id = %s
+            GROUP BY d.doctor_id
+        """, (date, doctor_id))
+        
+        result = cursor.fetchone()
+        if not result:
+            return []
+        
+        # Get all available slots
+        all_slots = json.loads(result['available_slots']) if result['available_slots'] else []
+        
+        # Get booked slots
+        booked_slots = result['booked_times'].split(',') if result['booked_times'] else []
+        
+        # Convert all slots to 24-hour format
+        available_slots = []
+        for slot in all_slots:
+            time_24h = convert_time_format(slot)
+            if time_24h and time_24h not in booked_slots:
+                # Convert back to 12-hour format for display
+                time_obj = datetime.strptime(time_24h, "%H:%M")
+                available_slots.append(time_obj.strftime("%I:%M %p").lstrip("0"))
+        
+        return sorted(available_slots)
+    except Exception as e:
+        st.error(f"Error getting available slots: {str(e)}")
+        return []
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
+def is_slot_available(doctor_id, date, time):
+    """Check if a time slot is available"""
+    try:
+        conn = pymysql.connect(**db_config)
+        cursor = conn.cursor()
+        
+        # Convert time to 24-hour format
+        time_24h = convert_time_format(time)
+        if not time_24h:
+            return False
+        
+        # Check if slot is already booked
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM appointments 
+            WHERE doctor_id = %s 
+            AND appointment_date = %s 
+            AND appointment_time = %s
+        """, (doctor_id, date, time_24h))
+        
+        return cursor.fetchone()[0] == 0
+    except Exception as e:
+        st.error(f"Error checking slot availability: {str(e)}")
+        return False
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
 def main():
     # Header with logo and title
     col1, col2 = st.columns([1, 4])
@@ -1198,74 +1317,63 @@ def main():
                     # Show only available slots for selected doctor
                     if selected_doctor_name:
                         selected_doctor = doctor_options[selected_doctor_name]
-                        if selected_doctor['available_slots']:
-                            all_slots = json.loads(selected_doctor['available_slots'])
+                        
+                        # Get available slots for the selected date
+                        available_slots = get_available_slots(
+                            selected_doctor["doctor_id"], 
+                            appointment_date.strftime("%Y-%m-%d")
+                        )
+                        
+                        if available_slots:
+                            appointment_time = st.selectbox(
+                                "Select Time",
+                                options=available_slots,
+                                help="Only available time slots are shown"
+                            )
                             
-                            # Convert all slots to display format (12-hour)
-                            display_slots = []
-                            for slot in all_slots:
-                                try:
-                                    # Convert to datetime object
-                                    if ":" in slot and not any(x in slot.upper() for x in ["AM", "PM"]):
-                                        # 24-hour format
-                                        time_obj = datetime.strptime(slot, "%H:%M")
-                                    else:
-                                        # 12-hour format
-                                        time_obj = datetime.strptime(slot, "%I:%M %p")
-                                    
-                                    # Check availability using 24-hour format
-                                    if is_slot_available(selected_doctor, appointment_date.strftime("%Y-%m-%d"), time_obj.strftime("%H:%M")):
-                                        # Add to display slots in 12-hour format
-                                        display_slots.append(time_obj.strftime("%I:%M %p").lstrip("0"))
-                                except ValueError as e:
-                                    st.error(f"Invalid time format in slot: {slot} - {str(e)}")
-                                    continue
-                            
-                            if display_slots:
-                                appointment_time = st.selectbox(
-                                    "Select Time",
-                                    options=sorted(display_slots)
-                                )
-                            else:
-                                st.error("No available slots for the selected date. Please choose another date.")
-                                appointment_time = None
+                            # Show current status
+                            st.info("✓ This slot is currently available")
+                        else:
+                            st.error("No available slots for the selected date. Please choose another date.")
+                            appointment_time = None
                     
                     # Include the "Proceed to Save Data" in the form submit
                     submit_appointment = st.form_submit_button("Book Appointment and Proceed")
                     
                     if submit_appointment and selected_doctor_name and appointment_time:
-                        # Convert selected time to 24-hour format for final check
-                        time_24h = convert_time_format(appointment_time)
-                        if time_24h and is_slot_available(selected_doctor, appointment_date.strftime("%Y-%m-%d"), time_24h):
-                            # First update the booked slots in the database
-                            if update_doctor_booked_slots(
-                                selected_doctor["doctor_id"],
-                                appointment_date.strftime("%Y-%m-%d"),
-                                time_24h
-                            ):
-                                # Add appointment info to patient data
-                                st.session_state.patient_data["appointment"] = {
-                                    "date": appointment_date.strftime("%Y-%m-%d"),
-                                    "time": time_24h,  # Store in 24-hour format
-                                    "status": "scheduled"
-                                }
-                                
-                                # Add selected doctor info
-                                st.session_state.patient_data["selected_doctor"] = {
-                                    "doctor_id": selected_doctor["doctor_id"],
-                                    "name": selected_doctor["full_name"],
-                                    "specialization": selected_doctor["specialization"],
-                                    "hospital": selected_doctor["hospital_affiliation"]
-                                }
-                                
-                                st.success("✅ Appointment scheduled successfully!")
-                                # Move to next step
-                                st.session_state.step = "db_insert"
-                                st.rerun()
-                            else:
-                                st.error("Failed to update appointment slot. Please try again.")
+                        # Double check availability and reserve the slot
+                        success, message = reserve_appointment_slot(
+                            selected_doctor["doctor_id"],
+                            appointment_date.strftime("%Y-%m-%d"),
+                            convert_time_format(appointment_time),
+                            st.session_state.patient_data.get("email", "")
+                        )
+                        
+                        if success:
+                            st.success(f"✅ {message}")
+                            st.success("Appointment slot has been reserved for you!")
+                            
+                            # Add appointment info to patient data
+                            st.session_state.patient_data["appointment"] = {
+                                "date": appointment_date.strftime("%Y-%m-%d"),
+                                "time": convert_time_format(appointment_time),  # Store in 24-hour format
+                                "status": "scheduled"
+                            }
+                            
+                            # Add selected doctor info
+                            st.session_state.patient_data["selected_doctor"] = {
+                                "doctor_id": selected_doctor["doctor_id"],
+                                "name": selected_doctor["full_name"],
+                                "specialization": selected_doctor["specialization"],
+                                "hospital": selected_doctor["hospital_affiliation"]
+                            }
+                            
+                            # Move to next step
+                            st.session_state.step = "db_insert"
+                            st.rerun()
                         else:
-                            st.error("This slot is no longer available. Please select another time.")
+                            st.error(f"❌ {message}")
+                            st.error("Please select a different time slot.")
             else:
                 st.error("No doctors available at the moment. Please try again later.")
                 return
