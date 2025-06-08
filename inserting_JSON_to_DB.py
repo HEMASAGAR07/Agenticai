@@ -204,7 +204,7 @@ def insert_data_from_mapped_json(json_file_path):
         
         # Insert into patients table
         patient_query = """
-            INSERT INTO patients (full_name, email, phone, DOB, gender, address)
+            INSERT INTO patients (name, email, phone, dob, gender, address)
             VALUES (%s, %s, %s, %s, %s, %s)
         """
         patient_values = (
@@ -221,49 +221,48 @@ def insert_data_from_mapped_json(json_file_path):
         # Insert medical history
         medical_history = mapped_data.get("medical_history", {})
         
-        # Insert symptoms
+        # Insert symptoms into symptoms_history table
         if medical_history.get("previous_symptoms"):
-            symptoms_query = "INSERT INTO symptoms (patient_id, symptom_description) VALUES (%s, %s)"
+            symptoms_query = "INSERT INTO symptoms_history (patient_id, symptoms) VALUES (%s, %s)"
             cursor.execute(symptoms_query, (patient_id, medical_history["previous_symptoms"]))
 
-        # Insert medications
+        # Insert medications into medications_history table
         if medical_history.get("previous_medications"):
-            medications_query = "INSERT INTO medications (patient_id, medication_name) VALUES (%s, %s)"
+            medications_query = "INSERT INTO medications_history (patient_id, medications) VALUES (%s, %s)"
             cursor.execute(medications_query, (patient_id, medical_history["previous_medications"]))
 
-        # Insert allergies
+        # Insert allergies into allergies_history table
         if medical_history.get("previous_allergies"):
-            allergies_query = "INSERT INTO allergies (patient_id, substance) VALUES (%s, %s)"
+            allergies_query = "INSERT INTO allergies_history (patient_id, allergies) VALUES (%s, %s)"
             cursor.execute(allergies_query, (patient_id, medical_history["previous_allergies"]))
 
-        # Insert surgeries
+        # Insert surgeries into surgeries_history table
         if medical_history.get("previous_surgeries"):
-            surgeries_query = "INSERT INTO surgeries (patient_id, procedure_name) VALUES (%s, %s)"
+            surgeries_query = "INSERT INTO surgeries_history (patient_id, surgeries) VALUES (%s, %s)"
             cursor.execute(surgeries_query, (patient_id, medical_history["previous_surgeries"]))
 
-        # Insert current symptoms
+        # Insert current symptoms into symptoms table
         current_symptoms = mapped_data.get("current_symptoms", [])
         if current_symptoms:
             symptoms_query = """
-                INSERT INTO current_symptoms 
-                (patient_id, description, severity, duration, frequency) 
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO symptoms 
+                (patient_id, symptom_name, severity, duration) 
+                VALUES (%s, %s, %s, %s)
             """
             for symptom in current_symptoms:
                 symptom_values = (
                     patient_id,
                     symptom.get("description"),
                     symptom.get("severity"),
-                    symptom.get("duration"),
-                    symptom.get("frequency", "not specified")
+                    symptom.get("duration")
                 )
                 cursor.execute(symptoms_query, symptom_values)
 
-        # Insert other concerns and notes
+        # Insert other concerns and notes into patient_notes table
         if mapped_data.get("other_concerns") or mapped_data.get("additional_notes"):
             notes_query = """
                 INSERT INTO patient_notes 
-                (patient_id, other_concerns, additional_notes) 
+                (patient_id, concerns, notes) 
                 VALUES (%s, %s, %s)
             """
             notes_values = (
