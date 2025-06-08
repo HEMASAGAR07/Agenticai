@@ -905,7 +905,8 @@ def main():
                 mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_json)
                 
                 # Save mapped data with date serialization
-                with open("mapped_output.json", "w") as f:
+                mapped_file = "mapped_output.json"
+                with open(mapped_file, "w") as f:
                     json.dump(mapped_result, f, indent=2, default=date_serializer)
                 
                 # Show the mapped data
@@ -915,7 +916,8 @@ def main():
                 # Insert into database
                 if st.button("Save to Database", key="save_to_db"):
                     try:
-                        result = insert_data_from_mapped_json(mapped_result)
+                        # Pass the file path to the insert function
+                        result = insert_data_from_mapped_json(mapped_file)
                         if result.get("status") == "success":
                             st.success("✅ Analysis saved successfully!")
                             
