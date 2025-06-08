@@ -1354,19 +1354,36 @@ def main():
                 
                 # Date selection outside the form
                 today = datetime.now().date()
+                tomorrow = today + timedelta(days=1)
+                
+                # Initialize default date in session state if not present
+                if 'selected_date' not in st.session_state:
+                    st.session_state.selected_date = tomorrow
+                
                 col1, col2 = st.columns([2, 1])
                 
                 with col1:
+                    st.markdown("#### 📅 Select Appointment Date")
                     new_date = st.date_input(
-                        "Select Date",
-                        min_value=today + timedelta(days=1),
-                        value=st.session_state.get('selected_date', today + timedelta(days=1)),
-                        key=f"date_select_{st.session_state.appointment_date_key}"
+                        "Choose your preferred date",
+                        min_value=tomorrow,
+                        value=st.session_state.selected_date,
+                        key=f"date_select_{st.session_state.appointment_date_key}",
+                        help="Select a date for your appointment. Only future dates are available."
                     )
-                    st.session_state.selected_date = new_date
+                    
+                    # Show selected date in a more readable format
+                    st.write(f"Selected: {new_date.strftime('%A, %B %d, %Y')}")
+                    
+                    # Update session state if date changed
+                    if st.session_state.selected_date != new_date:
+                        st.session_state.selected_date = new_date
+                        if 'current_doctor' in st.session_state:
+                            st.rerun()
 
                 # Create doctor selection form
                 with st.form(key="doctor_selection_form"):
+                    st.markdown("#### 👨‍⚕️ Choose Your Doctor")
                     # Create a formatted display name for each doctor
                     doctor_options = {
                         f"Dr. {doc['full_name']} - {doc['specialization']} ({doc['experience_years']} years) - {doc['hospital_affiliation']}": doc 
@@ -1374,12 +1391,13 @@ def main():
                     }
                     
                     selected_doctor_name = st.selectbox(
-                        "Select Doctor",
+                        "Select a doctor from the list below",
                         options=list(doctor_options.keys()),
-                        key="doctor_select"
+                        key="doctor_select",
+                        help="Choose a doctor based on their specialization and experience"
                     )
                     
-                    update_doctor = st.form_submit_button("Update Doctor Schedule")
+                    update_doctor = st.form_submit_button("✨ View Doctor's Schedule")
                     
                     if update_doctor and selected_doctor_name:
                         selected_doctor = doctor_options[selected_doctor_name]
@@ -1398,8 +1416,12 @@ def main():
                         new_date.strftime("%Y-%m-%d")
                     )
                     
-                    # Show doctor's details
-                    st.markdown("#### Doctor Details")
+                    # Show doctor's details in a nice format
+                    st.markdown("""
+                        <div style='padding: 1rem; background-color: #f8f9fa; border-radius: 10px; margin: 1rem 0;'>
+                            <h4 style='color: #2c3e50; margin-bottom: 1rem;'>Doctor Details</h4>
+                    """, unsafe_allow_html=True)
+                    
                     col1, col2 = st.columns(2)
                     with col1:
                         st.write("🏥 Hospital:", current_doctor['hospital_affiliation'])
@@ -1412,18 +1434,21 @@ def main():
                         else:
                             st.write("⏰ No slots available for selected date")
                     
+                    st.markdown("</div>", unsafe_allow_html=True)
+                    
                     # Booking form
                     with st.form(key="booking_form"):
-                        st.write("### 📅 Appointment Schedule")
-                        st.write(f"Schedule for {new_date.strftime('%A, %B %d, %Y')}")
+                        st.markdown("### 📅 Book Your Appointment")
+                        st.write(f"Scheduling for: {new_date.strftime('%A, %B %d, %Y')}")
                         
                         if available_slots:
-                            st.success(f"✅ Available Time Slots ({len(available_slots)})")
+                            st.success(f"✅ {len(available_slots)} time slots available")
                             # Show available times in the selection
                             appointment_time = st.selectbox(
-                                "Select a Time",
+                                "Choose your preferred time",
                                 options=[slot["time"] for slot in available_slots],
-                                key="time_select"
+                                key="time_select",
+                                help="Select a convenient time from available slots"
                             )
                             
                             # Store the 24h time format
@@ -1435,7 +1460,7 @@ def main():
                                 if selected_slot:
                                     st.session_state.selected_time_24h = selected_slot["time_24h"]
                             
-                            book_appointment = st.form_submit_button("Book Appointment")
+                            book_appointment = st.form_submit_button("🎯 Confirm Appointment")
                             
                             if book_appointment:
                                 if not hasattr(st.session_state, 'selected_time_24h'):
