@@ -3,6 +3,8 @@ import json
 import pymysql
 from dotenv import load_dotenv
 import uuid
+import mysql.connector
+from datetime import datetime
 
 # Load environment variables from .env file (if you use one)
 load_dotenv()
@@ -179,156 +181,112 @@ def handle_table_operation(cursor, operation_type, table, data, patient_id):
         print(f"❌ Error in {operation_type} for {table}: {str(e)}")
         raise
 
-def insert_data_from_mapped_json(file_path):
-    print(f"🔄 Loading data from file: {file_path}")
-    data = load_mapped_output(file_path)
-    
-    operation_id = str(uuid.uuid4())
-    conn = None
-    cursor = None
-    inserted_records = []
-    
+def load_json_file(file_path):
+    """Load and parse a JSON file"""
     try:
-        conn = connect_to_db()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
-        
-        # Start transaction
-        conn.begin()
-        
-        # First, find patient data
-        patient_data = next((item for item in data if item.get("table") == "patients"), None)
-        if not patient_data:
-            raise ValueError("No patient data found in mapped JSON")
-        
-        email = patient_data["columns"].get("email")
-        if not email:
-            raise ValueError("Email is required for patient identification")
-        
-        # Check if patient exists and get last update timestamp
-        patient_id = check_patient_exists(cursor, email)
-        if patient_id:
-            last_update = get_last_update_timestamp(cursor, patient_id)
-            print(f"✅ Found existing patient with ID: {patient_id}, last updated: {last_update}")
-            
-            # Save current state before updates
-            save_operation_state(operation_id, {
-                "patient_id": patient_id,
-                "last_update": last_update,
-                "original_data": patient_data
-            })
-            
-            # Update patient record
-            result = handle_table_operation(
-                cursor, "update", "patients", 
-                patient_data["columns"], patient_id
-            )
-            inserted_records.append({
-                "table": "patients",
-                "id": patient_id,
-                "type": "update",
-                "action": "updated"
-            })
-        else:
-            # Create new patient record
-            print("📥 Creating new patient record...")
-            result = handle_table_operation(
-                cursor, "insert", "patients", 
-                patient_data["columns"], None
-            )
-            patient_id = result["affected"]
-            save_operation_state(operation_id, {
-                "patient_id": patient_id,
-                "action": "insert",
-                "original_data": patient_data
-            })
-            inserted_records.append({
-                "table": "patients",
-                "id": patient_id,
-                "type": "single",
-                "action": "inserted"
-            })
-        
-        # Process other tables
-        for item in data:
-            if item.get("table") == "patients":
-                continue
-            
-            table = item.get("table")
-            if not table or "records" not in item:
-                continue
-            
-            # Verify medical terms if applicable
-            if table in ["medications", "symptoms", "allergies"]:
-                terms = [record.get(f"{table[:-1]}_name", "") for record in item["records"]]
-                if not verify_medical_terms(terms, table[:-1]):
-                    raise ValueError(f"Invalid {table} format detected")
-            
-            # Update records
-            result = handle_table_operation(
-                cursor, "multiple", table, 
-                item["records"], patient_id
-            )
-            inserted_records.append({
-                "table": table,
-                "count": result["affected"],
-                "type": "multiple",
-                "action": "updated"
-            })
-        
-        # Update timestamp
-        update_patient_timestamp(cursor, patient_id)
-        
-        # Verify all operations
-        print("🔍 Verifying database operations...")
-        for record in inserted_records:
-            if record["type"] in ["single", "update"]:
-                cursor.execute(
-                    f"SELECT * FROM {record['table']} WHERE patient_id = %s",
-                    (patient_id,)
-                )
-                if not cursor.fetchone():
-                    raise Exception(f"Verification failed for {record['table']}")
-            else:
-                cursor.execute(
-                    f"SELECT COUNT(*) as count FROM {record['table']} WHERE patient_id = %s",
-                    (patient_id,)
-                )
-                if not cursor.fetchone()['count']:
-                    raise Exception(f"Verification failed for {record['table']}")
-        
-        # If we got here, all operations were successful
-        conn.commit()
-        print("✅ All data operations completed successfully")
-        
-        # Clean up operation state
-        try:
-            os.remove(f"operation_state_{operation_id}.json")
-        except:
-            pass
-        
-        return {
-            "status": "success",
-            "patient_id": patient_id,
-            "operations": inserted_records
-        }
-        
+        with open(file_path, 'r') as f:
+            return json.load(f)
     except Exception as e:
-        if conn:
+        raise Exception(f"Error loading JSON file: {str(e)}")
+
+def insert_data_from_mapped_json(json_file_path):
+    """Insert data from mapped JSON file into the database"""
+    try:
+        # Load the JSON file
+        mapped_data = load_json_file(json_file_path)
+        
+        # Connect to the database
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+
+        # Get patient info
+        patient_info = mapped_data.get("patient_info", {})
+        
+        # Insert into patients table
+        patient_query = """
+            INSERT INTO patients (full_name, email, phone, DOB, gender, address)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        patient_values = (
+            patient_info.get("name"),
+            patient_info.get("email"),
+            patient_info.get("phone"),
+            patient_info.get("dob"),
+            patient_info.get("gender"),
+            patient_info.get("address")
+        )
+        cursor.execute(patient_query, patient_values)
+        patient_id = cursor.lastrowid
+
+        # Insert medical history
+        medical_history = mapped_data.get("medical_history", {})
+        
+        # Insert symptoms
+        if medical_history.get("previous_symptoms"):
+            symptoms_query = "INSERT INTO symptoms (patient_id, symptom_description) VALUES (%s, %s)"
+            cursor.execute(symptoms_query, (patient_id, medical_history["previous_symptoms"]))
+
+        # Insert medications
+        if medical_history.get("previous_medications"):
+            medications_query = "INSERT INTO medications (patient_id, medication_name) VALUES (%s, %s)"
+            cursor.execute(medications_query, (patient_id, medical_history["previous_medications"]))
+
+        # Insert allergies
+        if medical_history.get("previous_allergies"):
+            allergies_query = "INSERT INTO allergies (patient_id, substance) VALUES (%s, %s)"
+            cursor.execute(allergies_query, (patient_id, medical_history["previous_allergies"]))
+
+        # Insert surgeries
+        if medical_history.get("previous_surgeries"):
+            surgeries_query = "INSERT INTO surgeries (patient_id, procedure_name) VALUES (%s, %s)"
+            cursor.execute(surgeries_query, (patient_id, medical_history["previous_surgeries"]))
+
+        # Insert current symptoms
+        current_symptoms = mapped_data.get("current_symptoms", [])
+        if current_symptoms:
+            symptoms_query = """
+                INSERT INTO current_symptoms 
+                (patient_id, description, severity, duration, frequency) 
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            for symptom in current_symptoms:
+                symptom_values = (
+                    patient_id,
+                    symptom.get("description"),
+                    symptom.get("severity"),
+                    symptom.get("duration"),
+                    symptom.get("frequency", "not specified")
+                )
+                cursor.execute(symptoms_query, symptom_values)
+
+        # Insert other concerns and notes
+        if mapped_data.get("other_concerns") or mapped_data.get("additional_notes"):
+            notes_query = """
+                INSERT INTO patient_notes 
+                (patient_id, other_concerns, additional_notes) 
+                VALUES (%s, %s, %s)
+            """
+            notes_values = (
+                patient_id,
+                mapped_data.get("other_concerns", ""),
+                mapped_data.get("additional_notes", "")
+            )
+            cursor.execute(notes_query, notes_values)
+
+        # Commit the transaction
+        conn.commit()
+        
+        return {"status": "success", "patient_id": patient_id}
+
+    except Exception as e:
+        if 'conn' in locals():
             conn.rollback()
-        print(f"❌ Error in database operation: {e}")
-        
-        # Save error state for recovery
-        save_operation_state(operation_id, {
-            "error": str(e),
-            "patient_id": patient_id if 'patient_id' in locals() else None,
-            "last_successful_operation": inserted_records[-1] if inserted_records else None
-        })
-        
-        raise
+        raise Exception(f"Database error: {str(e)}")
+    
     finally:
-        if cursor:
+        if 'cursor' in locals():
             cursor.close()
-        if conn:
+        if 'conn' in locals():
             conn.close()
 
 def recover_failed_operation(operation_id):
