@@ -1004,45 +1004,112 @@ def main():
         # Show specialist recommendations again
         if "specialist_recommendations" in st.session_state:
             specialists = st.session_state.specialist_recommendations["specialists"]
+            rationale = st.session_state.specialist_recommendations["rationale"]
             
-            # Create appointment booking form
-            with st.form("appointment_form"):
-                selected_specialist = st.selectbox(
-                    "Select Specialist",
-                    specialists
-                )
+            st.markdown("### Recommended Specialists")
+            for specialist in specialists:
+                st.write(f"👨‍⚕️ {specialist}")
+            
+            if rationale:
+                st.markdown("### Recommendation Rationale")
+                st.write(rationale)
+            
+            # Get available doctors based on recommended specializations
+            available_doctors = get_available_doctors()
+            
+            # Filter doctors based on recommended specializations
+            recommended_doctors = [
+                doc for doc in available_doctors 
+                if any(spec.lower() in doc['specialization'].lower() for spec in specialists)
+            ]
+            
+            if not recommended_doctors:
+                st.warning("No doctors available for the recommended specializations. Showing all available doctors.")
+                recommended_doctors = available_doctors
+            
+            if recommended_doctors:
+                st.markdown("### 👨‍⚕️ Available Doctors")
                 
-                # Get today's date
-                today = datetime.now().date()
-                
-                # Allow selecting dates from tomorrow onwards
-                appointment_date = st.date_input(
-                    "Select Date",
-                    min_value=today + timedelta(days=1),
-                    value=today + timedelta(days=1)
-                )
-                
-                appointment_time = st.selectbox(
-                    "Select Time",
-                    ["9:00 AM", "10:00 AM", "11:00 AM", "2:00 PM", "3:00 PM", "4:00 PM"]
-                )
-                
-                # Include the "Proceed to Save Data" in the form submit
-                submit_appointment = st.form_submit_button("Book Appointment and Proceed")
-                
-                if submit_appointment:
-                    # Add appointment info to patient data
-                    st.session_state.patient_data["appointment"] = {
-                        "specialist": selected_specialist,
-                        "date": appointment_date.strftime("%Y-%m-%d"),  # Convert date to string
-                        "time": appointment_time,
-                        "status": "scheduled"
+                # Create appointment booking form
+                with st.form("appointment_form"):
+                    # Create a formatted display name for each doctor
+                    doctor_options = {
+                        f"Dr. {doc['full_name']} - {doc['specialization']} ({doc['experience_years']} years) - {doc['hospital_affiliation']}": doc 
+                        for doc in recommended_doctors
                     }
                     
-                    st.success("✅ Appointment scheduled successfully!")
-                    # Move to next step
-                    st.session_state.step = "db_insert"
-                    st.rerun()
+                    selected_doctor_name = st.selectbox(
+                        "Select Doctor",
+                        options=list(doctor_options.keys()),
+                        help="Choose a doctor from the recommended specialists"
+                    )
+                    
+                    if selected_doctor_name:
+                        selected_doctor = doctor_options[selected_doctor_name]
+                        
+                        # Show doctor's details
+                        st.markdown("#### Doctor Details")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write("🏥 Hospital:", selected_doctor['hospital_affiliation'])
+                            st.write("📚 Experience:", f"{selected_doctor['experience_years']} years")
+                        with col2:
+                            st.write("📅 Available Days:", selected_doctor['available_days'])
+                            if selected_doctor['available_slots']:
+                                available_slots = json.loads(selected_doctor['available_slots'])
+                                st.write("⏰ Available Slots:", ", ".join(available_slots))
+                    
+                    # Get today's date
+                    today = datetime.now().date()
+                    
+                    # Allow selecting dates from tomorrow onwards
+                    appointment_date = st.date_input(
+                        "Select Date",
+                        min_value=today + timedelta(days=1),
+                        value=today + timedelta(days=1)
+                    )
+                    
+                    # Show only available slots for selected doctor
+                    if selected_doctor_name:
+                        selected_doctor = doctor_options[selected_doctor_name]
+                        if selected_doctor['available_slots']:
+                            available_slots = json.loads(selected_doctor['available_slots'])
+                            appointment_time = st.selectbox(
+                                "Select Time",
+                                options=available_slots
+                            )
+                        else:
+                            appointment_time = st.selectbox(
+                                "Select Time",
+                                ["9:00 AM", "10:00 AM", "11:00 AM", "2:00 PM", "3:00 PM", "4:00 PM"]
+                            )
+                    
+                    # Include the "Proceed to Save Data" in the form submit
+                    submit_appointment = st.form_submit_button("Book Appointment and Proceed")
+                    
+                    if submit_appointment and selected_doctor_name:
+                        # Add appointment info to patient data
+                        st.session_state.patient_data["appointment"] = {
+                            "date": appointment_date.strftime("%Y-%m-%d"),
+                            "time": appointment_time,
+                            "status": "scheduled"
+                        }
+                        
+                        # Add selected doctor info
+                        st.session_state.patient_data["selected_doctor"] = {
+                            "doctor_id": selected_doctor["doctor_id"],
+                            "name": selected_doctor["full_name"],
+                            "specialization": selected_doctor["specialization"],
+                            "hospital": selected_doctor["hospital_affiliation"]
+                        }
+                        
+                        st.success("✅ Appointment scheduled successfully!")
+                        # Move to next step
+                        st.session_state.step = "db_insert"
+                        st.rerun()
+            else:
+                st.error("No doctors available at the moment. Please try again later.")
+                return
 
     elif st.session_state.step == "db_insert":
         st.markdown("""
