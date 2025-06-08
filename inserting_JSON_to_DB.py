@@ -14,7 +14,9 @@ db_config = {
     "user": os.getenv("DB_USER"),
     "password": os.getenv("DB_PASSWORD"),
     "database": os.getenv("DB_NAME"),
-    "port": int(os.getenv("DB_PORT", 3306))
+    "port": int(os.getenv("DB_PORT", 3306)),
+    "charset": "utf8mb4",
+    "use_unicode": True
 }
 
 # Connect to DB
@@ -215,8 +217,11 @@ def insert_data_from_mapped_json(json_file_path):
         if not isinstance(mapped_data, list):
             raise ValueError("Expected mapped data to be a list of table operations")
         
-        # Connect to the database
-        conn = mysql.connector.connect(**db_config)
+        # Connect to the database with proper encoding
+        conn = mysql.connector.connect(
+            **db_config,
+            collation="utf8mb4_unicode_ci"
+        )
         cursor = conn.cursor()
 
         patient_id = None
@@ -244,6 +249,10 @@ def insert_data_from_mapped_json(json_file_path):
                 for record in records:
                     # Add patient_id to the record
                     record["patient_id"] = patient_id
+                    # Ensure symptom_description is properly truncated if needed
+                    if "symptom_description" in record:
+                        # Truncate to 65535 characters (max for TEXT)
+                        record["symptom_description"] = str(record["symptom_description"])[:65535]
                     col_names = ", ".join([f"`{key}`" for key in record.keys()])
                     placeholders = ", ".join(["%s"] * len(record))
                     query = f"INSERT INTO `{table_name}` ({col_names}) VALUES ({placeholders})"
