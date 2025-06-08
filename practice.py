@@ -10,7 +10,7 @@ import pymysql
 from inserting_JSON_to_DB import db_config,insert_data_from_mapped_json, save_operation_state, handle_table_operation, get_last_update_timestamp
 from booking import book_appointment_from_json
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 # Custom styling
 st.set_page_config(
@@ -564,7 +564,7 @@ You are a medical triage assistant.
 Based on the following patient data, recommend the most appropriate medical specialist(s) for consultation.
 
 Patient data:
-{json.dumps(patient_data, indent=2)}
+{json.dumps(patient_data, indent=2, default=date_serializer)}
 
 Instructions:
 - Analyze symptoms, medical history, medications, allergies, and other relevant information.
@@ -933,9 +933,14 @@ def main():
                     specialists
                 )
                 
+                # Get today's date
+                today = datetime.now().date()
+                
+                # Allow selecting dates from tomorrow onwards
                 appointment_date = st.date_input(
                     "Select Date",
-                    min_value=datetime.now().date()
+                    min_value=today + timedelta(days=1),
+                    value=today + timedelta(days=1)
                 )
                 
                 appointment_time = st.selectbox(
@@ -949,8 +954,9 @@ def main():
                     # Add appointment info to patient data
                     st.session_state.patient_data["appointment"] = {
                         "specialist": selected_specialist,
-                        "date": appointment_date.strftime("%Y-%m-%d"),
-                        "time": appointment_time
+                        "date": appointment_date.strftime("%Y-%m-%d"),  # Convert date to string
+                        "time": appointment_time,
+                        "status": "scheduled"
                     }
                     
                     st.success("✅ Appointment scheduled successfully!")
