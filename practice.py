@@ -1278,6 +1278,7 @@ def main():
         if "patient_data" in st.session_state:
             st.session_state.patient_data = migrate_existing_data({"patient_data": st.session_state.patient_data})["patient_data"]
 
+        # Handle different steps
         if st.session_state.step == "intake":
             st.markdown("""
                 <div class='step-header'>
@@ -1299,27 +1300,29 @@ def main():
                 </div>
             """, unsafe_allow_html=True)
 
-            # Get specialist recommendations
-            specialists, rationale = recommend_specialist(st.session_state.patient_data)
-            
-            if specialists:
-                st.markdown("### Recommended Specialists")
-                for specialist in specialists:
-                    st.write(f"👨‍⚕️ {specialist}")
+            try:
+                specialists, rationale = recommend_specialist(st.session_state.patient_data)
                 
-                if rationale:
-                    st.markdown("### Recommendation Rationale")
-                    st.write(rationale)
-                
-                # Store recommendations in session state
-                st.session_state.specialist_recommendations = {
-                    "specialists": specialists,
-                    "rationale": rationale
-                }
-                
-                if st.button("Proceed to Appointment Booking"):
-                    st.session_state.step = "appointment"
-                    st.rerun()
+                if specialists:
+                    st.markdown("### Recommended Specialists")
+                    for specialist in specialists:
+                        st.write(f"👨‍⚕️ {specialist}")
+                    
+                    if rationale:
+                        st.markdown("### Recommendation Rationale")
+                        st.write(rationale)
+                    
+                    st.session_state.specialist_recommendations = {
+                        "specialists": specialists,
+                        "rationale": rationale
+                    }
+                    
+                    if st.button("Proceed to Appointment Booking"):
+                        st.session_state.step = "appointment"
+                        st.rerun()
+            except Exception as e:
+                st.error("An error occurred while generating specialist recommendations. Please try again.")
+                return
 
         elif st.session_state.step == "appointment":
             try:
@@ -1517,97 +1520,91 @@ def main():
                     return
 
         elif st.session_state.step == "db_insert":
-            st.markdown("""
-                <div class='step-header'>
-                    <h2>Step 4: Saving Analysis</h2>
-                    <p>Saving your symptom analysis and recommendations</p>
-                </div>
-            """, unsafe_allow_html=True)
+            try:
+                st.markdown("""
+                    <div class='step-header'>
+                        <h2>Step 4: Saving Analysis</h2>
+                        <p>Saving your symptom analysis and recommendations</p>
+                    </div>
+                """, unsafe_allow_html=True)
 
-            # Prepare data for mapping
-            if "patient_data" in st.session_state:
-                try:
-                    # Create the final JSON structure
-                    final_json = {
-                        "patient_data": st.session_state.patient_data,
-                        "status": "complete"
-                    }
-                    
-                    # Add specialist recommendations if available
-                    if "specialist_recommendations" in st.session_state:
-                        final_json["specialist_recommendations"] = st.session_state.specialist_recommendations
-                    
-                    # Map the data to DB schema
-                    mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_json)
-                    
-                    # Save mapped data with date serialization
-                    mapped_file = "mapped_output.json"
-                    with open(mapped_file, "w") as f:
-                        json.dump(mapped_result, f, indent=2, default=date_serializer)
-                    
-                    # Show the mapped data
-                    with st.expander("View Mapped Data"):
-                        st.json(mapped_result)
-                    
-                    # Insert into database
-                    if st.button("Save to Database", key="save_to_db"):
-                        try:
-                            # Pass the file path to the insert function
-                            result = insert_data_from_mapped_json(mapped_file)
-                            if result.get("status") == "success":
-                                st.success("✅ Analysis saved successfully!")
-                                
-                                # Show the analysis results
-                                if "symptoms_analysis" in mapped_result:
-                                    analysis = mapped_result["symptoms_analysis"]
-                                    st.write("### Analysis Results")
+                if "patient_data" in st.session_state:
+                    try:
+                        # Create the final JSON structure
+                        final_json = {
+                            "patient_data": st.session_state.patient_data,
+                            "status": "complete"
+                        }
+                        
+                        if "specialist_recommendations" in st.session_state:
+                            final_json["specialist_recommendations"] = st.session_state.specialist_recommendations
+                        
+                        # Map the data to DB schema
+                        mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_json)
+                        
+                        # Save mapped data
+                        mapped_file = "mapped_output.json"
+                        with open(mapped_file, "w") as f:
+                            json.dump(mapped_result, f, indent=2, default=date_serializer)
+                        
+                        with st.expander("View Mapped Data"):
+                            st.json(mapped_result)
+
+                        if st.button("Save to Database", key="save_to_db"):
+                            try:
+                                result = insert_data_from_mapped_json(mapped_file)
+                                if result.get("status") == "success":
+                                    st.success("✅ Analysis saved successfully!")
                                     
-                                    if "symptoms_identified" in analysis:
-                                        st.write("*Identified Symptoms:*")
-                                        for symptom in analysis["symptoms_identified"]:
-                                            st.write(f"- {symptom}")
+                                    # Show success information
+                                    if "symptoms_analysis" in mapped_result:
+                                        st.write("### Analysis Results")
+                                        analysis = mapped_result["symptoms_analysis"]
+                                        
+                                        if "symptoms_identified" in analysis:
+                                            st.write("*Identified Symptoms:*")
+                                            for symptom in analysis["symptoms_identified"]:
+                                                st.write(f"- {symptom}")
+                                        
+                                        if "severity_analysis" in analysis:
+                                            st.write(f"*Severity Analysis:* {analysis['severity_analysis']}")
+                                        
+                                        if "recommended_specialists" in analysis:
+                                            st.write("*Recommended Medical Specialties:*")
+                                            for specialist in analysis["recommended_specialists"]:
+                                                st.write(f"- {specialist}")
+                                        
+                                        if "rationale" in analysis:
+                                            st.write(f"*Analysis Rationale:* {analysis['rationale']}")
                                     
-                                    if "severity_analysis" in analysis:
-                                        st.write(f"*Severity Analysis:* {analysis['severity_analysis']}")
+                                    # Show appointment details
+                                    if "appointment" in st.session_state.patient_data:
+                                        st.write("### Appointment Details")
+                                        appt = st.session_state.patient_data["appointment"]
+                                        doctor = st.session_state.patient_data.get("selected_doctor", {})
+                                        
+                                        st.write(f"🗓️ Date: {appt.get('date', 'Not set')}")
+                                        st.write(f"⏰ Time: {appt.get('time', 'Not set')}")
+                                        st.write(f"👨‍⚕️ Doctor: Dr. {doctor.get('name', 'Not set')}")
+                                        st.write(f"🏥 Hospital: {doctor.get('hospital', 'Not set')}")
                                     
-                                    if "recommended_specialists" in analysis:
-                                        st.write("*Recommended Medical Specialties:*")
-                                        for specialist in analysis["recommended_specialists"]:
-                                            st.write(f"- {specialist}")
-                                    
-                                    if "rationale" in analysis:
-                                        st.write(f"*Analysis Rationale:* {analysis['rationale']}")
-                                
-                                # Show appointment details if available
-                                if "appointment" in st.session_state.patient_data and "selected_doctor" in st.session_state.patient_data:
-                                    st.write("### Appointment Details")
-                                    appt = st.session_state.patient_data["appointment"]
-                                    doctor = st.session_state.patient_data["selected_doctor"]
-                                    st.write(f"🗓️ Date: {appt['date']}")
-                                    st.write(f"⏰ Time: {appt['time']}")
-                                    st.write(f"👨‍⚕️ Doctor: Dr. {doctor['name']}")
-                                    st.write(f"🏥 Hospital: {doctor['hospital']}")
-                                
-                                if st.button("Start New Analysis"):
-                                    # Clear session state
-                                    for key in list(st.session_state.keys()):
-                                        del st.session_state[key]
-                                    st.session_state.step = "intake"
-                                    st.rerun()
-                            else:
-                                st.error("❌ Failed to save analysis")
-                        except Exception as e:
-                            st.error(f"❌ Database error: {str(e)}")
-                except Exception as e:
-                    st.error(f"❌ Error preparing data: {str(e)}")
-                    # Add debugging information
-                    st.write("Debug info:")
-                    st.write("Patient data:", st.session_state.patient_data)
-            else:
-                st.error("No patient data available. Please complete the symptom analysis first.")
-                if st.button("Return to Symptom Analysis"):
-                    st.session_state.step = "intake"
-                    st.rerun()
+                                    if st.button("Start New Analysis"):
+                                        for key in list(st.session_state.keys()):
+                                            del st.session_state[key]
+                                        st.session_state.step = "intake"
+                                        st.rerun()
+                            except Exception as e:
+                                st.error(f"Database error: Please try again or contact support.")
+                    except Exception as e:
+                        st.error("Error preparing data: Please try again or contact support.")
+                else:
+                    st.error("No patient data available. Please complete the symptom analysis first.")
+                    if st.button("Return to Symptom Analysis"):
+                        st.session_state.step = "intake"
+                        st.rerun()
+            except Exception as e:
+                st.error("An error occurred while saving the analysis. Please try again.")
+                return
 
     except Exception as e:
         st.error("An unexpected error occurred. Please try again or contact support if the issue persists.")
