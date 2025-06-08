@@ -295,8 +295,18 @@ def dynamic_medical_intake():
         st.session_state.data_confirmed = False
     if "in_health_assessment" not in st.session_state:
         st.session_state.in_health_assessment = False
+    if "symptoms_collected" not in st.session_state:
+        st.session_state.symptoms_collected = False
 
-    # If we're in health assessment, skip the initial collection logic
+    # If symptoms have been collected, show the proceed button
+    if st.session_state.symptoms_collected:
+        st.success("✅ Medical intake completed successfully!")
+        if st.button("Proceed to Save Data"):
+            st.session_state.step = "db_insert"
+            st.rerun()
+        return st.session_state.patient_data, "", True
+
+    # If we're in health assessment, handle that flow
     if st.session_state.in_health_assessment:
         if st.session_state.intake_history:
             st.write(f"{st.session_state.intake_history[-1][1]}")
@@ -313,10 +323,12 @@ def dynamic_medical_intake():
             # Check if health intake is complete
             final_output = extract_json(reply.text)
             if final_output.get("status") == "complete":
+                # Update patient data with collected symptoms
                 if st.session_state.db_data_retrieved:
                     final_output["patient_data"].update(st.session_state.patient_data)
-                st.success("✅ Medical intake completed successfully!")
-                return final_output.get("patient_data", {}), final_output.get("summary", ""), True
+                st.session_state.patient_data = final_output.get("patient_data", {})
+                st.session_state.symptoms_collected = True
+                st.rerun()
             st.rerun()
         return {}, "", False
 
@@ -403,6 +415,10 @@ CONVERSATION FLOW:
    - Process every answer meaningfully
    - Don't repeat questions
    - Don't ignore simple answers
+
+4. When Complete:
+   - Return a JSON with "status": "complete" and all collected information
+   - Include severity and duration for each symptom
 
 Begin with: "What symptoms or health concerns are you experiencing today? If none, please say 'no'."
 """
@@ -825,8 +841,6 @@ def main():
     # Migrate any existing session data
     if "patient_data" in st.session_state:
         st.session_state.patient_data = migrate_existing_data({"patient_data": st.session_state.patient_data})["patient_data"]
-    if "final_patient_json" in st.session_state:
-        st.session_state.final_patient_json = migrate_existing_data(st.session_state.final_patient_json)
 
     if st.session_state.step == "intake":
         st.markdown("""
@@ -848,84 +862,72 @@ def main():
                 <p>Saving your symptom analysis and recommendations</p>
             </div>
         """, unsafe_allow_html=True)
-        
-        mapped_file = "mapped_output.json"
-        if os.path.exists(mapped_file):
+
+        # Prepare data for mapping
+        if "patient_data" in st.session_state:
             try:
-                with open(mapped_file, "r") as f:
-                    mapped_result = json.load(f)
-
-                if "db_insert_success" in st.session_state and st.session_state.db_insert_success:
-                    st.success("✅ Analysis saved successfully!")
-                    
-                    # Show the analysis results
-                    if "symptoms_analysis" in mapped_result:
-                        analysis = mapped_result["symptoms_analysis"]
-                        st.write("### Analysis Results")
-                        
-                        if "symptoms_identified" in analysis:
-                            st.write("*Identified Symptoms:*")
-                            for symptom in analysis["symptoms_identified"]:
-                                st.write(f"- {symptom}")
-                        
-                        if "severity_analysis" in analysis:
-                            st.write(f"*Severity Analysis:* {analysis['severity_analysis']}")
-                        
-                        if "recommended_specialists" in analysis:
-                            st.write("*Recommended Medical Specialties:*")
-                            for specialist in analysis["recommended_specialists"]:
-                                st.write(f"- {specialist}")
-                        
-                        if "rationale" in analysis:
-                            st.write(f"*Analysis Rationale:* {analysis['rationale']}")
-                    
-                    if st.button("Start New Analysis"):
-                        for key in list(st.session_state.keys()):
-                            del st.session_state[key]
-                        st.session_state.step = "intake"
-                        st.rerun()
-                    return
-
-                if st.button("Save Analysis", key="insert_db"):
+                # Create the final JSON structure
+                final_json = {
+                    "patient_data": st.session_state.patient_data,
+                    "status": "complete"
+                }
+                
+                # Map the data to DB schema
+                mapped_result = mapping_collectedinfo_to_schema.get_mapped_output(final_json)
+                
+                # Save mapped data
+                with open("mapped_output.json", "w") as f:
+                    json.dump(mapped_result, f, indent=2)
+                
+                # Show the mapped data
+                with st.expander("View Mapped Data"):
+                    st.json(mapped_result)
+                
+                # Insert into database
+                if st.button("Save to Database", key="save_to_db"):
                     try:
-                        conn = pymysql.connect(**db_config)
-                        cursor = conn.cursor(pymysql.cursors.DictCursor)
-                        
                         result = insert_data_from_mapped_json(mapped_result)
-                        
                         if result.get("status") == "success":
                             st.success("✅ Analysis saved successfully!")
-                            st.session_state.db_insert_success = True
-                            st.rerun()
+                            
+                            # Show the analysis results
+                            if "symptoms_analysis" in mapped_result:
+                                analysis = mapped_result["symptoms_analysis"]
+                                st.write("### Analysis Results")
+                                
+                                if "symptoms_identified" in analysis:
+                                    st.write("*Identified Symptoms:*")
+                                    for symptom in analysis["symptoms_identified"]:
+                                        st.write(f"- {symptom}")
+                                
+                                if "severity_analysis" in analysis:
+                                    st.write(f"*Severity Analysis:* {analysis['severity_analysis']}")
+                                
+                                if "recommended_specialists" in analysis:
+                                    st.write("*Recommended Medical Specialties:*")
+                                    for specialist in analysis["recommended_specialists"]:
+                                        st.write(f"- {specialist}")
+                                
+                                if "rationale" in analysis:
+                                    st.write(f"*Analysis Rationale:* {analysis['rationale']}")
+                            
+                            if st.button("Start New Analysis"):
+                                # Clear session state
+                                for key in list(st.session_state.keys()):
+                                    del st.session_state[key]
+                                st.session_state.step = "intake"
+                                st.rerun()
                         else:
                             st.error("❌ Failed to save analysis")
-                            st.session_state.db_insert_success = False
-
                     except Exception as e:
-                        st.error(f"❌ Error during database operation: {str(e)}")
-                    finally:
-                        if 'cursor' in locals():
-                            cursor.close()
-                        if 'conn' in locals():
-                            conn.close()
+                        st.error(f"❌ Database error: {str(e)}")
             except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+                st.error(f"❌ Error preparing data: {str(e)}")
         else:
-            st.error("Analysis data not ready for saving. Please complete the analysis first.")
-
-    else:  # done step
-        st.markdown("""
-            <div class='step-header'>
-                <h2>Analysis Complete</h2>
-                <p>Thank you for using our Medical Symptom Analysis system</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        if st.button("Start New Analysis"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.session_state.step = "intake"
-            st.rerun()
+            st.error("No patient data available. Please complete the symptom analysis first.")
+            if st.button("Return to Symptom Analysis"):
+                st.session_state.step = "intake"
+                st.rerun()
 
 if __name__ == "__main__":
     main()
