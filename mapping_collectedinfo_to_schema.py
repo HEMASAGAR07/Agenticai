@@ -3,6 +3,7 @@ import sys
 import json
 from dotenv import load_dotenv
 from google.generativeai import configure, GenerativeModel
+from datetime import date, datetime
 
 # Load Gemini API key
 load_dotenv()
@@ -67,59 +68,66 @@ Map the data to this format, following valid table-column mappings only:
 Skip unrelated or unknown fields. Output valid JSON only.
 """
 
-# 4. Call Gemini
-def get_mapped_output(raw_data):
-    prompt = build_prompt(raw_data)
-    model = GenerativeModel("gemini-1.5-flash")
-    response = model.generate_content(prompt)
+def date_serializer(obj):
+    """Custom JSON serializer for handling dates"""
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
 
-    content = response.text.strip()
-
-    # Remove markdown code block markers if present
-    if content.startswith("```"):
-        content = content.split("```")[1].strip()
-        if content.startswith("json"):
-            content = content[len("json"):].strip()
-    
+def get_mapped_output(input_json):
+    """Maps the collected information to the database schema"""
     try:
-        # Parse the JSON string into a Python object
-        mapped_data = json.loads(content)
+        patient_data = input_json.get("patient_data", {})
         
-        # Validate the structure
-        if not isinstance(mapped_data, list):
-            print("❌ Expected a list of table mappings")
-            return []
-            
-        # Validate each mapping
-        valid_mappings = []
-        for item in mapped_data:
-            if not isinstance(item, dict):
-                print(f"⚠️ Skipping invalid mapping: {item}")
-                continue
-                
-            if "table" not in item:
-                print(f"⚠️ Skipping mapping without table name: {item}")
-                continue
-                
-            if "columns" not in item and "records" not in item:
-                print(f"⚠️ Skipping mapping without columns or records: {item}")
-                continue
-                
-            valid_mappings.append(item)
-            
-        if not valid_mappings:
-            print("❌ No valid mappings found in response")
-            return []
-            
-        return valid_mappings
+        # Convert any date strings to proper format
+        if "DOB" in patient_data and patient_data["DOB"]:
+            try:
+                if isinstance(patient_data["DOB"], str):
+                    # Try to parse the date string
+                    dob = datetime.strptime(patient_data["DOB"], "%Y-%m-%d").date()
+                    patient_data["DOB"] = dob.isoformat()
+            except ValueError:
+                # If date parsing fails, keep the original string
+                pass
         
-    except json.JSONDecodeError as e:
-        print(f"❌ Invalid JSON in LLM response: {str(e)}")
-        print("Raw response:", content)
-        return []
+        # Handle surgery dates if present
+        if "previous_surgeries" in patient_data:
+            surgeries = patient_data["previous_surgeries"]
+            if isinstance(surgeries, list):
+                for surgery in surgeries:
+                    if isinstance(surgery, dict) and "surgery_date" in surgery:
+                        try:
+                            if isinstance(surgery["surgery_date"], str):
+                                surgery_date = datetime.strptime(surgery["surgery_date"], "%Y-%m-%d").date()
+                                surgery["surgery_date"] = surgery_date.isoformat()
+                        except ValueError:
+                            pass
+
+        # Create the mapped output
+        mapped_output = {
+            "patient_info": {
+                "name": patient_data.get("full_name", ""),
+                "email": patient_data.get("email", ""),
+                "phone": patient_data.get("phone", ""),
+                "dob": patient_data.get("DOB", ""),
+                "gender": patient_data.get("gender", ""),
+                "address": patient_data.get("address", "")
+            },
+            "medical_history": {
+                "previous_symptoms": patient_data.get("previous_symptoms", []),
+                "previous_medications": patient_data.get("previous_medications", []),
+                "previous_allergies": patient_data.get("previous_allergies", []),
+                "previous_surgeries": patient_data.get("previous_surgeries", [])
+            },
+            "current_symptoms": patient_data.get("current_symptoms", []),
+            "other_concerns": patient_data.get("other_concerns", ""),
+            "additional_notes": patient_data.get("additional_notes", ""),
+            "status": "mapped"
+        }
+        
+        return mapped_output
     except Exception as e:
-        print(f"❌ Error processing mapped data: {str(e)}")
-        return []
+        raise Exception(f"Error mapping data: {str(e)}")
 
 # 5. Main driver
 def main():
