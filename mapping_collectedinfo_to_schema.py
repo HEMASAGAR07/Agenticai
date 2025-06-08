@@ -160,41 +160,11 @@ def get_mapped_output(input_json):
             for symptom in current_symptoms:
                 if isinstance(symptom, dict):
                     symptoms_records.append({
-                        "symptom_description": summarize_medical_text(symptom.get("description", "not specified")),
-                        "severity": symptom.get("severity", "not specified"),
-                        "duration": symptom.get("duration", "not specified")
+                        "symptom_description": symptom.get("description", ""),
+                        "severity": symptom.get("severity", ""),
+                        "duration": symptom.get("duration", ""),
+                        "recorded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     })
-                else:
-                    symptoms_records.append({
-                        "symptom_description": summarize_medical_text(str(symptom)),
-                        "severity": "not specified",
-                        "duration": "not specified"
-                    })
-        elif current_symptoms:  # Handle string input
-            symptoms_records.append({
-                "symptom_description": summarize_medical_text(str(current_symptoms)),
-                "severity": "not specified",
-                "duration": "not specified"
-            })
-
-        # Add specialist recommendations
-        if "specialist_recommendations" in input_json:
-            recommendations = input_json["specialist_recommendations"]
-            specialists = recommendations.get("specialists", [])
-            rationale = recommendations.get("rationale", "")
-            if specialists or rationale:
-                notes = []
-                if specialists:
-                    notes.append("Recommended Specialists:")
-                    notes.extend([f"- {s}" for s in specialists[:3]])  # Limit to top 3 specialists
-                if rationale:
-                    notes.append("Rationale:")
-                    notes.append(summarize_medical_text(rationale, 150))  # Shorter summary for rationale
-                symptoms_records.append({
-                    "symptom_description": summarize_medical_text("\n".join(notes)),
-                    "severity": "info",
-                    "duration": "N/A"
-                })
 
         # Add appointment and doctor details
         if "selected_doctor" in patient_data and "appointment" in patient_data:
@@ -202,29 +172,27 @@ def get_mapped_output(input_json):
             appt = patient_data["appointment"]
             
             # Add appointment record
-            mapped_output.append({
-                "table": "appointments",
-                "columns": {
-                    "doctor_id": doctor.get("doctor_id"),
-                    "appointment_date": appt.get("date"),
-                    "appointment_time": appt.get("time"),
-                    "status": 1  # 1 for scheduled
-                }
-            })
+            appointment_columns = {
+                "doctor_id": doctor.get("doctor_id"),
+                "appointment_date": parse_date(appt.get("date")),
+                "appointment_time": appt.get("time"),
+                "status": 1  # 1 for scheduled
+            }
+            # Remove any None or empty values
+            appointment_columns = {k: v for k, v in appointment_columns.items() if v is not None and v != ""}
             
-            # Add appointment notes to symptoms
-            appt_notes = [
-                "Appointment Details:",
-                f"Doctor: Dr. {doctor.get('name', '')}",
-                f"Specialization: {doctor.get('specialization', '')}",
-                f"Hospital: {doctor.get('hospital', '')}",
-                f"Date: {appt.get('date', '')}",
-                f"Time: {appt.get('time', '')}"
-            ]
+            if appointment_columns:
+                mapped_output.append({
+                    "table": "appointments",
+                    "columns": appointment_columns
+                })
+            
+            # Add appointment notes to symptoms if needed
             symptoms_records.append({
-                "symptom_description": summarize_medical_text("\n".join(appt_notes)),
+                "symptom_description": f"Scheduled appointment with Dr. {doctor.get('name')} ({doctor.get('specialization')}) at {doctor.get('hospital')} for {appt.get('date')} {appt.get('time')}",
                 "severity": "info",
-                "duration": "N/A"
+                "duration": "N/A",
+                "recorded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
 
         # Add symptoms records if any exist
