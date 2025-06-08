@@ -1093,36 +1093,49 @@ def get_available_slots(doctor_id, date):
         conn = pymysql.connect(**db_config)
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         
-        # Get doctor's available slots and booked appointments
+        # Get doctor's schedule and booked appointments in a single query
         cursor.execute("""
             SELECT 
                 d.available_slots,
-                GROUP_CONCAT(a.appointment_time) as booked_times
+                d.available_days,
+                GROUP_CONCAT(DISTINCT a.appointment_time) as booked_times
             FROM doctors d
             LEFT JOIN appointments a ON d.doctor_id = a.doctor_id 
                 AND a.appointment_date = %s
+                AND a.status = 1  # Only consider confirmed/reserved appointments
             WHERE d.doctor_id = %s
             GROUP BY d.doctor_id
         """, (date, doctor_id))
         
         result = cursor.fetchone()
-        if not result:
+        if not result or not result['available_slots']:
             return []
         
-        # Get all available slots
-        all_slots = json.loads(result['available_slots']) if result['available_slots'] else []
+        # Check if the selected date's day is in available days
+        selected_day = datetime.strptime(date, "%Y-%m-%d").strftime("%A")[:3]  # Get short day name (Mon, Tue, etc.)
+        available_days = [day.strip()[:3] for day in result['available_days'].split(',')]
         
-        # Get booked slots
-        booked_slots = result['booked_times'].split(',') if result['booked_times'] else []
+        if selected_day not in available_days:
+            return []  # Return empty list if day is not available
         
-        # Convert all slots to 24-hour format
+        # Get all slots from doctor's schedule
+        all_slots = json.loads(result['available_slots'])
+        
+        # Get list of booked slots
+        booked_slots = []
+        if result['booked_times']:
+            booked_slots = result['booked_times'].split(',')
+        
+        # Filter out booked slots and convert to display format
         available_slots = []
         for slot in all_slots:
+            # Convert to 24-hour format for comparison
             time_24h = convert_time_format(slot)
             if time_24h and time_24h not in booked_slots:
-                # Convert back to 12-hour format for display
+                # Convert to 12-hour format for display
                 time_obj = datetime.strptime(time_24h, "%H:%M")
-                available_slots.append(time_obj.strftime("%I:%M %p").lstrip("0"))
+                display_time = time_obj.strftime("%I:%M %p").lstrip("0")
+                available_slots.append(display_time)
         
         return sorted(available_slots)
     except Exception as e:
@@ -1325,16 +1338,17 @@ def main():
                         )
                         
                         if available_slots:
+                            st.write("### Available Time Slots")
+                            st.info(f"Found {len(available_slots)} available slots for {appointment_date.strftime('%A, %B %d, %Y')}")
+                            
                             appointment_time = st.selectbox(
                                 "Select Time",
                                 options=available_slots,
-                                help="Only available time slots are shown"
+                                help="These slots are currently available for booking"
                             )
-                            
-                            # Show current status
-                            st.info("✓ This slot is currently available")
                         else:
                             st.error("No available slots for the selected date. Please choose another date.")
+                            st.info("💡 Try selecting a different date or check another doctor's availability.")
                             appointment_time = None
                     
                     # Include the "Proceed to Save Data" in the form submit
