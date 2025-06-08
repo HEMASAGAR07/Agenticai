@@ -334,14 +334,24 @@ def convert_time_format(time_str):
         # If time is already in 24-hour format
         if ":" in time_str and not any(x in time_str.upper() for x in ["AM", "PM"]):
             # Ensure consistent format HH:MM
-            time_obj = datetime.strptime(time_str, "%H:%M")
-            return time_obj.strftime("%H:%M")
+            time_parts = time_str.split(":")
+            if len(time_parts) == 2:
+                hours = int(time_parts[0])
+                minutes = int(time_parts[1])
+                if 0 <= hours <= 23 and 0 <= minutes <= 59:
+                    return f"{hours:02d}:{minutes:02d}"
+            return None
         
         # Convert 12-hour format to 24-hour
-        time_obj = datetime.strptime(time_str.strip(), "%I:%M %p")
-        return time_obj.strftime("%H:%M")
-    except ValueError as e:
-        st.error(f"Error converting time format: {str(e)}")
+        try:
+            time_obj = datetime.strptime(time_str.strip(), "%I:%M %p")
+            return time_obj.strftime("%H:%M")
+        except ValueError:
+            # Try alternative format without leading zeros
+            time_obj = datetime.strptime(time_str.strip(), "%-I:%M %p")
+            return time_obj.strftime("%H:%M")
+    except Exception as e:
+        st.write(f"Time conversion error for '{time_str}': {str(e)}")
         return None
 
 def update_doctor_booked_slots(doctor_id, appointment_date, appointment_time):
@@ -1069,7 +1079,7 @@ def get_all_slots_status(doctor_id, date):
         
         # First get all booked appointments for this date
         cursor.execute("""
-            SELECT TIME_FORMAT(appointment_time, '%H:%i') as appointment_time 
+            SELECT DATE_FORMAT(appointment_time, '%%H:%%i') as appointment_time 
             FROM appointments 
             WHERE doctor_id = %s 
             AND appointment_date = %s 
@@ -1115,25 +1125,30 @@ def get_all_slots_status(doctor_id, date):
         # Filter available slots
         available_slots = []
         for slot in all_slots:
-            # Convert to 24-hour format for comparison
-            time_24h = convert_time_format(slot)
-            if not time_24h:
-                continue
+            try:
+                # Convert to 24-hour format for comparison
+                time_24h = convert_time_format(slot)
+                if not time_24h:
+                    st.write(f"Skipping invalid time format: {slot}")
+                    continue
+                    
+                # Skip if slot is booked
+                if time_24h in booked_slots:
+                    st.write(f"Skipping booked slot: {time_24h}")
+                    continue
+                    
+                # Convert to 12-hour format for display
+                time_obj = datetime.strptime(time_24h, "%H:%M")
+                display_time = time_obj.strftime("%I:%M %p").lstrip("0")
                 
-            # Skip if slot is booked
-            if time_24h in booked_slots:
-                st.write(f"Skipping booked slot: {time_24h}")  # Debug line
+                available_slots.append({
+                    "time": display_time,
+                    "time_24h": time_24h,
+                    "status": "available"
+                })
+            except Exception as e:
+                st.write(f"Error processing slot {slot}: {str(e)}")
                 continue
-                
-            # Convert to 12-hour format for display
-            time_obj = datetime.strptime(time_24h, "%H:%M")
-            display_time = time_obj.strftime("%I:%M %p").lstrip("0")
-            
-            available_slots.append({
-                "time": display_time,
-                "time_24h": time_24h,
-                "status": "available"
-            })
         
         # Debug information
         st.write(f"Available slots after filtering: {len(available_slots)}")
@@ -1145,7 +1160,7 @@ def get_all_slots_status(doctor_id, date):
         
     except Exception as e:
         st.error(f"Error getting slots status: {str(e)}")
-        st.write("Full error:", str(e))  # Additional error info
+        st.write("Full error:", str(e))
         return []
     finally:
         if 'cursor' in locals():
