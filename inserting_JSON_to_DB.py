@@ -252,6 +252,37 @@ def insert_data_from_mapped_json(json_file_path):
                 )
                 cursor.execute(symptoms_query, symptom_values)
 
+        # Insert specialist recommendations if available
+        if "specialist_recommendations" in mapped_data:
+            recommendations = mapped_data["specialist_recommendations"]
+            specialists = recommendations.get("specialists", [])
+            rationale = recommendations.get("rationale", "")
+            
+            for specialist in specialists:
+                specialist_query = """
+                    INSERT INTO specialist_recommendations 
+                    (patient_id, specialist_type, rationale) 
+                    VALUES (%s, %s, %s)
+                """
+                cursor.execute(specialist_query, (patient_id, specialist, rationale))
+
+        # Insert appointment if available
+        if "appointment" in mapped_data:
+            appointment = mapped_data["appointment"]
+            appointment_query = """
+                INSERT INTO appointments 
+                (patient_id, specialist, appointment_date, appointment_time, status) 
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            appointment_values = (
+                patient_id,
+                appointment.get("specialist"),
+                appointment.get("date"),
+                appointment.get("time"),
+                appointment.get("status", "scheduled")
+            )
+            cursor.execute(appointment_query, appointment_values)
+
         # Commit the transaction
         conn.commit()
         
