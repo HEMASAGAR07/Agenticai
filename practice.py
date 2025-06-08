@@ -1065,20 +1065,20 @@ def get_all_slots_status(doctor_id, date):
         conn = pymysql.connect(**db_config)
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         
-        # Get doctor's schedule and booked appointments in one query
+        # Get doctor's schedule and booked appointments in a single query
         cursor.execute("""
             SELECT 
                 d.available_slots,
                 d.available_days,
-                GROUP_CONCAT(
-                    DISTINCT a.appointment_time
+                (
+                    SELECT GROUP_CONCAT(appointment_time)
+                    FROM appointments 
+                    WHERE doctor_id = d.doctor_id 
+                    AND appointment_date = %s
+                    AND status = 1
                 ) as booked_slots
             FROM doctors d
-            LEFT JOIN appointments a ON d.doctor_id = a.doctor_id 
-                AND a.appointment_date = %s 
-                AND a.status = 1
             WHERE d.doctor_id = %s
-            GROUP BY d.doctor_id
         """, (date, doctor_id))
         
         result = cursor.fetchone()
@@ -1092,15 +1092,20 @@ def get_all_slots_status(doctor_id, date):
         if selected_day not in available_days:
             return []
         
-        # Get set of booked slots
+        # Convert available_slots from JSON if needed
+        try:
+            all_slots = json.loads(result['available_slots']) if isinstance(result['available_slots'], str) else result['available_slots']
+        except Exception as e:
+            st.error(f"Error parsing available slots: {str(e)}")
+            return []
+        
+        # Create set of booked slots for O(1) lookup
         booked_slots = set()
         if result['booked_slots']:
             booked_slots = {slot.strip() for slot in result['booked_slots'].split(',')}
         
-        # Process all slots from doctor's schedule
-        all_slots = json.loads(result['available_slots'])
+        # Process all slots and filter out booked ones
         available_slots = []
-        
         for slot in all_slots:
             # Convert to 24-hour format for comparison
             time_24h = convert_time_format(slot)
@@ -1115,14 +1120,14 @@ def get_all_slots_status(doctor_id, date):
             time_obj = datetime.strptime(time_24h, "%H:%M")
             display_time = time_obj.strftime("%I:%M %p").lstrip("0")
             
-            # Only add available slots
+            # Add to available slots
             available_slots.append({
                 "time": display_time,
                 "time_24h": time_24h,
                 "status": "available"
             })
         
-        # Sort available slots by time
+        # Sort by time
         available_slots.sort(key=lambda x: datetime.strptime(x["time"], "%I:%M %p"))
         return available_slots
         
@@ -1141,9 +1146,10 @@ def reserve_appointment_slot(doctor_id, appointment_date, appointment_time, emai
         conn = pymysql.connect(**db_config)
         cursor = conn.cursor()
         
-        # First check if slot is already booked using a transaction
+        # Start transaction
         cursor.execute("START TRANSACTION")
         
+        # Check if slot is already booked with row locking
         cursor.execute("""
             SELECT COUNT(*) 
             FROM appointments 
@@ -1159,7 +1165,12 @@ def reserve_appointment_slot(doctor_id, appointment_date, appointment_time, emai
             return False, "This slot is already booked."
         
         # Get patient_id from email
-        cursor.execute("SELECT patient_id FROM patients WHERE email = %s", (email,))
+        cursor.execute("""
+            SELECT patient_id 
+            FROM patients 
+            WHERE email = %s 
+            FOR UPDATE
+        """, (email,))
         result = cursor.fetchone()
         if not result:
             cursor.execute("ROLLBACK")
@@ -1167,13 +1178,28 @@ def reserve_appointment_slot(doctor_id, appointment_date, appointment_time, emai
         
         patient_id = result[0]
         
-        # Insert the appointment with immediate locking
+        # Check if patient already has an appointment at this time
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM appointments 
+            WHERE patient_id = %s
+            AND appointment_date = %s 
+            AND appointment_time = %s
+            AND status = 1
+        """, (patient_id, appointment_date, appointment_time))
+        
+        if cursor.fetchone()[0] > 0:
+            cursor.execute("ROLLBACK")
+            return False, "You already have an appointment at this time."
+        
+        # Insert the appointment
         cursor.execute("""
             INSERT INTO appointments 
             (doctor_id, patient_id, appointment_date, appointment_time, status) 
             VALUES (%s, %s, %s, %s, 1)
         """, (doctor_id, patient_id, appointment_date, appointment_time))
         
+        # Commit the transaction
         cursor.execute("COMMIT")
         return True, "Appointment slot reserved successfully!"
     except Exception as e:
@@ -1390,6 +1416,17 @@ def main():
                             st.error("Please select an appointment time.")
                             return
                             
+                        # Double check slot availability before booking
+                        current_slots = get_all_slots_status(
+                            selected_doctor["doctor_id"], 
+                            appointment_date.strftime("%Y-%m-%d")
+                        )
+                        
+                        # Verify the selected slot is still available
+                        if not any(slot["time_24h"] == st.session_state.selected_time_24h for slot in current_slots):
+                            st.error("❌ This slot is no longer available. Please select a different time.")
+                            return
+                            
                         # Try to reserve the slot
                         success, message = reserve_appointment_slot(
                             selected_doctor["doctor_id"],
@@ -1421,7 +1458,8 @@ def main():
                             st.rerun()
                         else:
                             st.error(f"❌ {message}")
-                            st.error("Please select a different time slot.")
+                            # Refresh available slots after failed booking attempt
+                            st.rerun()
             else:
                 st.error("No doctors available at the moment. Please try again later.")
                 return
