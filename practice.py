@@ -1416,115 +1416,105 @@ def main():
                                 st.error("Please select a valid date")
                                 return
 
-                        # Show appointment booking form only if doctor is selected
-                        if 'current_doctor' in st.session_state:
-                            current_doctor = st.session_state.current_doctor
-                            
-                            # Get available slots
-                            available_slots = get_all_slots_status(
-                                current_doctor["doctor_id"], 
-                                new_date.strftime("%Y-%m-%d")
-                            )
-                            
-                            # Show doctor's details in a nice format
-                            st.markdown("""
-                                <div style='padding: 1rem; background-color: #f8f9fa; border-radius: 10px; margin: 1rem 0;'>
-                                    <h4 style='color: #2c3e50; margin-bottom: 1rem;'>Doctor Details</h4>
-                                """, unsafe_allow_html=True)
+                        # Show doctor's details in a nice format
+                        st.markdown("""
+                            <div style='padding: 1rem; background-color: #f8f9fa; border-radius: 10px; margin: 1rem 0;'>
+                                <h4 style='color: #2c3e50; margin-bottom: 1rem;'>Doctor Details</h4>
+                        """, unsafe_allow_html=True)
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write("🏥 Hospital:", selected_doctor['hospital_affiliation'])
+                            st.write("📚 Experience:", f"{selected_doctor['experience_years']} years")
+                        with col2:
+                            st.write("📅 Available Days:", selected_doctor['available_days'])
+                            if available_slots:
+                                available_times = [slot["time"] for slot in available_slots]
+                                st.write("⏰ Available Slots:", ", ".join(available_times))
+                            else:
+                                st.write("⏰ No slots available for selected date")
+                        
+                        st.markdown("</div>", unsafe_allow_html=True)
+                        
+                        # Only show booking form if there are available slots
+                        if available_slots:
+                            with st.form(key="booking_form"):
+                                st.markdown("### 📅 Book Your Appointment")
+                                st.write(f"Scheduling for: {new_date.strftime('%A, %B %d, %Y')}")
                                 
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.write("🏥 Hospital:", current_doctor['hospital_affiliation'])
-                                    st.write("📚 Experience:", f"{current_doctor['experience_years']} years")
-                                with col2:
-                                    st.write("📅 Available Days:", current_doctor['available_days'])
-                                    if available_slots:
-                                        available_times = [slot["time"] for slot in available_slots]
-                                        st.write("⏰ Available Slots:", ", ".join(available_times))
+                                st.success(f"✅ {len(available_slots)} time slots available")
+                                # Show only available times in the selection
+                                appointment_time = st.selectbox(
+                                    "Choose your preferred time",
+                                    options=[slot["time"] for slot in available_slots],
+                                    key="time_select",
+                                    help="Select a convenient time from available slots"
+                                )
+                                
+                                # Store the 24h time format
+                                if appointment_time:
+                                    selected_slot = next(
+                                        (slot for slot in available_slots if slot["time"] == appointment_time),
+                                        None
+                                    )
+                                    if selected_slot:
+                                        st.session_state.selected_time_24h = selected_slot["time_24h"]
+                                
+                                book_appointment = st.form_submit_button("🎯 Confirm Appointment")
+                                
+                                if book_appointment:
+                                    if not hasattr(st.session_state, 'selected_time_24h'):
+                                        st.error("Please select an appointment time.")
+                                        return
+                                    
+                                    # Double check slot availability
+                                    current_slots = get_all_slots_status(
+                                        selected_doctor["doctor_id"], 
+                                        new_date.strftime("%Y-%m-%d")
+                                    )
+                                    
+                                    if not any(slot["time_24h"] == st.session_state.selected_time_24h for slot in current_slots):
+                                        st.error("❌ This slot is no longer available. Please select a different time.")
+                                        st.rerun()
+                                        return
+                                    
+                                    # Try to reserve the slot
+                                    success, message = reserve_appointment_slot(
+                                        selected_doctor["doctor_id"],
+                                        new_date.strftime("%Y-%m-%d"),
+                                        st.session_state.selected_time_24h,
+                                        st.session_state.patient_data.get("email", "")
+                                    )
+                                    
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                        
+                                        # Add appointment info to patient data
+                                        st.session_state.patient_data["appointment"] = {
+                                            "date": new_date.strftime("%Y-%m-%d"),
+                                            "time": st.session_state.selected_time_24h,
+                                            "status": "scheduled"
+                                        }
+                                        
+                                        # Add selected doctor info
+                                        st.session_state.patient_data["selected_doctor"] = {
+                                            "doctor_id": selected_doctor["doctor_id"],
+                                            "name": selected_doctor["full_name"],
+                                            "specialization": selected_doctor["specialization"],
+                                            "hospital": selected_doctor["hospital_affiliation"]
+                                        }
+                                        
+                                        # Move to next step
+                                        st.session_state.step = "db_insert"
+                                        st.rerun()
                                     else:
-                                        st.write("⏰ No slots available for selected date")
-                                
-                                st.markdown("</div>", unsafe_allow_html=True)
-                                
-                                # Only show booking form if there are available slots
-                                if available_slots:
-                                    with st.form(key="booking_form"):
-                                        st.markdown("### 📅 Book Your Appointment")
-                                        st.write(f"Scheduling for: {new_date.strftime('%A, %B %d, %Y')}")
-                                        
-                                        st.success(f"✅ {len(available_slots)} time slots available")
-                                        # Show only available times in the selection
-                                        appointment_time = st.selectbox(
-                                            "Choose your preferred time",
-                                            options=[slot["time"] for slot in available_slots],
-                                            key="time_select",
-                                            help="Select a convenient time from available slots"
-                                        )
-                                        
-                                        # Store the 24h time format
-                                        if appointment_time:
-                                            selected_slot = next(
-                                                (slot for slot in available_slots if slot["time"] == appointment_time),
-                                                None
-                                            )
-                                            if selected_slot:
-                                                st.session_state.selected_time_24h = selected_slot["time_24h"]
-                                        
-                                        book_appointment = st.form_submit_button("🎯 Confirm Appointment")
-                                        
-                                        if book_appointment:
-                                            if not hasattr(st.session_state, 'selected_time_24h'):
-                                                st.error("Please select an appointment time.")
-                                                return
-                                            
-                                            # Double check slot availability
-                                            current_slots = get_all_slots_status(
-                                                current_doctor["doctor_id"], 
-                                                new_date.strftime("%Y-%m-%d")
-                                            )
-                                            
-                                            if not any(slot["time_24h"] == st.session_state.selected_time_24h for slot in current_slots):
-                                                st.error("❌ This slot is no longer available. Please select a different time.")
-                                                st.rerun()
-                                                return
-                                            
-                                            # Try to reserve the slot
-                                            success, message = reserve_appointment_slot(
-                                                current_doctor["doctor_id"],
-                                                new_date.strftime("%Y-%m-%d"),
-                                                st.session_state.selected_time_24h,
-                                                st.session_state.patient_data.get("email", "")
-                                            )
-                                            
-                                            if success:
-                                                st.success(f"✅ {message}")
-                                                
-                                                # Add appointment info to patient data
-                                                st.session_state.patient_data["appointment"] = {
-                                                    "date": new_date.strftime("%Y-%m-%d"),
-                                                    "time": st.session_state.selected_time_24h,
-                                                    "status": "scheduled"
-                                                }
-                                                
-                                                # Add selected doctor info
-                                                st.session_state.patient_data["selected_doctor"] = {
-                                                    "doctor_id": current_doctor["doctor_id"],
-                                                    "name": current_doctor["full_name"],
-                                                    "specialization": current_doctor["specialization"],
-                                                    "hospital": current_doctor["hospital_affiliation"]
-                                                }
-                                                
-                                                # Move to next step
-                                                st.session_state.step = "db_insert"
-                                                st.rerun()
-                                            else:
-                                                st.error(f"❌ {message}")
-                                                st.rerun()
-                                else:
-                                    st.warning("👉 No available slots for the selected date. Please choose a different date.")
+                                        st.error(f"❌ {message}")
+                                        st.rerun()
                         else:
-                            st.error("No doctors available at the moment. Please try again later.")
-                            return
+                            st.warning("👉 No available slots for the selected date. Please choose a different date.")
+                    else:
+                        st.error("No doctors available at the moment. Please try again later.")
+                    return
 
         elif st.session_state.step == "db_insert":
             st.markdown("""
