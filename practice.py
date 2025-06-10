@@ -1540,8 +1540,8 @@ def main():
                     st.write(f"👨‍⚕️ {specialist}")
                 
                 if rationale:
-                    with st.expander("View Recommendation Rationale"):
-                        st.write(rationale)
+                    st.markdown("### Recommendation Rationale")
+                    st.write(rationale)
                 
                 st.session_state.specialist_recommendations = {
                     "specialists": specialists,
@@ -1560,40 +1560,16 @@ def main():
                 </div>
             """, unsafe_allow_html=True)
 
-            # Show booking summary if appointment is already booked
-            if "appointment" in st.session_state.patient_data:
-                st.success("✅ Appointment booked successfully!")
-                
-                appt = st.session_state.patient_data["appointment"]
-                doctor = st.session_state.patient_data["selected_doctor"]
-                
-                st.markdown("### Appointment Details")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write("📅 Date:", appt["date"])
-                    st.write("⏰ Time:", appt["time"])
-                    st.write("👨‍⚕️ Doctor:", f"Dr. {doctor['name']}")
-                
-                with col2:
-                    st.write("🏥 Hospital:", doctor["hospital"])
-                    st.write("🎓 Specialization:", doctor["specialization"])
-                    st.write("💰 Consultation Fee:", f"${doctor['consultation_fee']}")
-                
-                if appt.get("reason"):
-                    st.write("🔍 Reason for Visit:", appt["reason"])
-                if appt.get("special_requests"):
-                    st.write("📝 Special Requests:", appt["special_requests"])
-                
-                if st.button("Proceed to Save Information"):
-                    st.session_state.step = "db_insert"
-                    st.rerun()
-            else:
-                # Handle the booking process
+            try:
                 result = book_appointment()
                 if result.get("success"):
                     st.success("✅ Appointment booked successfully!")
+                    st.session_state.step = "db_insert"
                     st.rerun()
+                else:
+                    st.error(result.get("message", "Failed to book appointment"))
+            except Exception as e:
+                st.error(f"Error booking appointment: {str(e)}")
 
         elif st.session_state.step == "db_insert":
             st.markdown("""
@@ -1625,21 +1601,6 @@ def main():
                     
                     with col2:
                         if st.button("View Summary"):
-                            # Show appointment summary
-                            if "appointment" in st.session_state.patient_data:
-                                st.markdown("### 📅 Appointment Summary")
-                                appt = st.session_state.patient_data["appointment"]
-                                doctor = st.session_state.patient_data["selected_doctor"]
-                                
-                                st.write(f"**Date & Time:** {appt['date']} at {appt['time']}")
-                                st.write(f"**Doctor:** Dr. {doctor['name']} ({doctor['specialization']})")
-                                st.write(f"**Location:** {doctor['hospital']}")
-                                
-                                if appt.get("reason"):
-                                    st.write(f"**Reason:** {appt['reason']}")
-                            
-                            # Show patient information
-                            st.markdown("### 👤 Patient Information")
                             st.json(st.session_state.patient_data)
                 else:
                     st.error("Failed to save information. Please try again.")
