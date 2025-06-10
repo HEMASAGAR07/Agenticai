@@ -1558,62 +1558,73 @@ def main():
                         with st.expander("View Mapped Data"):
                             st.json(mapped_result)
 
-                        if st.button("Save to Database", key="save_to_db"):
-                            try:
-                                result = insert_data_from_mapped_json(mapped_file)
-                                if result.get("status") == "success":
-                                    st.success("✅ Analysis and Appointment Successfully Saved!")
+                        # Check if data is already saved to avoid saving multiple times
+                        if "data_saved" not in st.session_state:
+                            if st.button("Save to Database", key="save_to_db"):
+                                try:
+                                    result = insert_data_from_mapped_json(mapped_file)
+                                    if result.get("status") == "success":
+                                        st.session_state.data_saved = True
+                                        st.session_state.mapped_result = mapped_result
+                                        st.rerun()
+                                except Exception as e:
+                                    st.error(f"Database error: Please try again or contact support. Error: {str(e)}")
+                                    return
+                        
+                        # Show summary and actions if data is saved
+                        if "data_saved" in st.session_state:
+                            st.success("✅ Analysis and Appointment Successfully Saved!")
+                            
+                            # Create columns for better layout
+                            summary_col1, summary_col2 = st.columns(2)
+                            
+                            with summary_col1:
+                                st.markdown("### 📋 Analysis Summary")
+                                if "symptoms_analysis" in mapped_result:
+                                    analysis = mapped_result["symptoms_analysis"]
                                     
-                                    # Create columns for better layout
-                                    summary_col1, summary_col2 = st.columns(2)
+                                    if "symptoms_identified" in analysis:
+                                        st.markdown("**🔍 Identified Symptoms:**")
+                                        for symptom in analysis["symptoms_identified"]:
+                                            st.write(f"• {symptom}")
                                     
-                                    with summary_col1:
-                                        st.markdown("### 📋 Analysis Summary")
-                                        if "symptoms_analysis" in mapped_result:
-                                            analysis = mapped_result["symptoms_analysis"]
-                                            
-                                            if "symptoms_identified" in analysis:
-                                                st.markdown("**🔍 Identified Symptoms:**")
-                                                for symptom in analysis["symptoms_identified"]:
-                                                    st.write(f"• {symptom}")
-                                            
-                                            if "severity_analysis" in analysis:
-                                                st.markdown(f"**⚡ Severity Level:**")
-                                                st.write(analysis['severity_analysis'])
-                                            
-                                            if "recommended_specialists" in analysis:
-                                                st.markdown("**👨‍⚕️ Recommended Specialists:**")
-                                                for specialist in analysis["recommended_specialists"]:
-                                                    st.write(f"• {specialist}")
+                                    if "severity_analysis" in analysis:
+                                        st.markdown(f"**⚡ Severity Level:**")
+                                        st.write(analysis['severity_analysis'])
                                     
-                                    with summary_col2:
-                                        if "appointment" in st.session_state.patient_data:
-                                            st.markdown("### 🗓️ Appointment Details")
-                                            appt = st.session_state.patient_data["appointment"]
-                                            doctor = st.session_state.patient_data.get("selected_doctor", {})
-                                            
-                                            # Format appointment details in a card-like structure
-                                            st.markdown("""
-                                                <div style='background-color: #f8f9fa; padding: 20px; border-radius: 10px;'>
-                                                    <h4 style='color: #2c3e50; margin-bottom: 15px;'>Your Appointment</h4>
-                                            """, unsafe_allow_html=True)
-                                            
-                                            date_obj = datetime.strptime(appt.get('date', ''), "%Y-%m-%d")
-                                            formatted_date = date_obj.strftime("%A, %B %d, %Y")
-                                            
-                                            # Convert 24h time to 12h format for display
-                                            time_obj = datetime.strptime(appt.get('time', ''), "%H:%M")
-                                            formatted_time = time_obj.strftime("%I:%M %p")
-                                            
-                                            st.markdown(f"""
-                                                📅 **Date:** {formatted_date}<br>
-                                                ⏰ **Time:** {formatted_time}<br>
-                                                👨‍⚕️ **Doctor:** Dr. {doctor.get('name', 'Not set')}<br>
-                                                🏥 **Hospital:** {doctor.get('hospital', 'Not set')}<br>
-                                                🎯 **Specialization:** {doctor.get('specialization', 'Not set')}
-                                            """, unsafe_allow_html=True)
-                                            
-                                            st.markdown("</div>", unsafe_allow_html=True)
+                                    if "recommended_specialists" in analysis:
+                                        st.markdown("**👨‍⚕️ Recommended Specialists:**")
+                                        for specialist in analysis["recommended_specialists"]:
+                                            st.write(f"• {specialist}")
+                            
+                            with summary_col2:
+                                if "appointment" in st.session_state.patient_data:
+                                    st.markdown("### 🗓️ Appointment Details")
+                                    appt = st.session_state.patient_data["appointment"]
+                                    doctor = st.session_state.patient_data.get("selected_doctor", {})
+                                    
+                                    # Format appointment details in a card-like structure
+                                    st.markdown("""
+                                        <div style='background-color: #f8f9fa; padding: 20px; border-radius: 10px;'>
+                                            <h4 style='color: #2c3e50; margin-bottom: 15px;'>Your Appointment</h4>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    date_obj = datetime.strptime(appt.get('date', ''), "%Y-%m-%d")
+                                    formatted_date = date_obj.strftime("%A, %B %d, %Y")
+                                    
+                                    # Convert 24h time to 12h format for display
+                                    time_obj = datetime.strptime(appt.get('time', ''), "%H:%M")
+                                    formatted_time = time_obj.strftime("%I:%M %p")
+                                    
+                                    st.markdown(f"""
+                                        📅 **Date:** {formatted_date}<br>
+                                        ⏰ **Time:** {formatted_time}<br>
+                                        👨‍⚕️ **Doctor:** Dr. {doctor.get('name', 'Not set')}<br>
+                                        🏥 **Hospital:** {doctor.get('hospital', 'Not set')}<br>
+                                        🎯 **Specialization:** {doctor.get('specialization', 'Not set')}
+                                    """, unsafe_allow_html=True)
+                                    
+                                    st.markdown("</div>", unsafe_allow_html=True)
                                     
                                     # Next Steps Section
                                     st.markdown("### 📝 Next Steps")
@@ -1661,12 +1672,12 @@ def main():
                                     
                                     with action_col3:
                                         if st.button("🔄 Start New Analysis", key="new_analysis", type="primary"):
+                                            # Clear all session state
                                             for key in list(st.session_state.keys()):
                                                 del st.session_state[key]
                                             st.session_state.step = "intake"
                                             st.rerun()
-                            except Exception as e:
-                                st.error(f"Database error: Please try again or contact support. Error: {str(e)}")
+                                    
                     except Exception as e:
                         st.error(f"Error preparing data: Please try again or contact support. Error: {str(e)}")
                 else:
